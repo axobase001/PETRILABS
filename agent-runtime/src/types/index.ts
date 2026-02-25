@@ -178,4 +178,10 @@ export interface AgentConfig {
     decision: number;
   };
   redis?: string;
+  // nkmc 网关配置（新增）
+  nkmc?: {
+    jwt: string;
+    baseUrl?: string;
+    cachePath?: string;
+  };
 }

@@ -10,6 +10,9 @@ import ExpressionEngine from '../genome/expression';
 import SkillRegistry from '../skills/registry';
 import DecisionEngine from '../decision/engine';
 import HeartbeatService from '../chain/heartbeat';
+import { NkmcGateway } from '../gateways/nkmc';
+import { CapabilityRouter } from '../routers/capability';
+import MetabolismTracker from '../metabolism/tracker';
 import { 
   AgentConfig, 
   AgentState, 
@@ -18,6 +21,7 @@ import {
   SkillContext,
   GeneDomain,
   MemoryEvent,
+  Gene,
 } from '../types';
 
 export class ClawBot {
@@ -30,9 +34,15 @@ export class ClawBot {
   private provider: ethers.JsonRpcProvider;
   private genomeRegistry: Contract;
   
+  // nkmc 网关组件（新增）
+  private nkmcGateway?: NkmcGateway;
+  private capabilityRouter?: CapabilityRouter;
+  private metabolismTracker: MetabolismTracker;
+  
   private isRunning = false;
   private decisionInterval?: NodeJS.Timeout;
   private lastDecisionTime = 0;
+  private loadedGenes: Gene[] = [];
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -46,6 +56,9 @@ export class ClawBot {
     // Initialize blockchain connection
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
     
+    // Initialize metabolism tracker（复用现有 C-经济染色体系统）
+    this.metabolismTracker = new MetabolismTracker();
+    
     // Initialize components
     this.expressionEngine = new ExpressionEngine(config.genomeHash);
     this.skillRegistry = new SkillRegistry(this.buildSkillContext());
@@ -56,6 +69,21 @@ export class ClawBot {
       config.agentAddress,
       config.intervals.heartbeat
     );
+
+    // Initialize nkmc gateway if JWT provided（新增）
+    if (config.nkmc?.jwt) {
+      this.nkmcGateway = new NkmcGateway({
+        jwt: config.nkmc.jwt,
+        baseUrl: config.nkmc.baseUrl,
+      });
+      
+      this.capabilityRouter = new CapabilityRouter({
+        gateway: this.nkmcGateway,
+        dbPath: config.nkmc.cachePath,
+      });
+      
+      logger.info('nkmc gateway initialized');
+    }
 
     // Genome registry contract
     const GENOME_REGISTRY_ABI = [
@@ -121,8 +149,114 @@ export class ClawBot {
     }
 
     await this.skillRegistry.shutdownAll();
+    
+    // 关闭 nkmc 组件（新增）
+    this.nkmcGateway?.stop();
+    this.capabilityRouter?.close();
 
     logger.info('ClawBot stopped');
+  }
+
+  /**
+   * Execute a gene expression
+   * D-染色体基因通过 nkmc 路由执行（新增）
+   */
+  async executeGene(gene: Gene, params?: unknown): Promise<{
+    success: boolean;
+    data?: unknown;
+    cost: number;
+    error?: string;
+  }> {
+    // D-染色体（互联网技能）通过 nkmc 网关执行
+    if (gene.domain === GeneDomain.API_UTILIZATION || 
+        gene.domain === GeneDomain.WEB_NAVIGATION) {
+      if (!this.capabilityRouter) {
+        return {
+          success: false,
+          cost: 0,
+          error: 'nkmc gateway not initialized',
+        };
+      }
+      
+      const result = await this.capabilityRouter.route(gene, params);
+      
+      // 记录 API 调用成本到代谢系统
+      if (result.success) {
+        this.metabolismTracker.recordApiCall(
+          result.cost,
+          'nkmc',
+          gene.id.toString()
+        );
+      } else if (result.error?.includes('exceeds metabolic budget')) {
+        // 触发压力响应 - 通过表达 G-染色体压力基因
+        await this.triggerStressResponse('metabolic_exceed', {
+          geneId: gene.id,
+          error: result.error,
+        });
+      }
+      
+      return result;
+    }
+    
+    // 其他染色体使用标准执行
+    return this.standardExecution(gene, params);
+  }
+
+  /**
+   * 标准基因执行（非 D-染色体）
+   */
+  private async standardExecution(gene: Gene, params?: unknown): Promise<{
+    success: boolean;
+    data?: unknown;
+    cost: number;
+    error?: string;
+  }> {
+    // 根据基因域执行相应逻辑
+    switch (gene.domain) {
+      case GeneDomain.ONCHAIN_OPERATION:
+        // 链上操作
+        return { success: true, cost: 0.001, data: null };
+        
+      case GeneDomain.COGNITION:
+        // 认知处理
+        return { success: true, cost: 0.01, data: null };
+        
+      default:
+        return { success: true, cost: gene.metabolicCost / 10000, data: null };
+    }
+  }
+
+  /**
+   * 触发压力响应（G-染色体）
+   */
+  private async triggerStressResponse(type: string, context: unknown): Promise<void> {
+    logger.warn('Triggering stress response', { type, context });
+    
+    // 查找并表达 G-染色体压力响应基因
+    const stressGenes = this.loadedGenes.filter(
+      g => g.domain === GeneDomain.STRESS_RESPONSE
+    );
+    
+    if (stressGenes.length > 0) {
+      // 选择最高权重的压力基因
+      const primaryStressGene = stressGenes.reduce((max, g) => 
+        g.weight > max.weight ? g : max
+      );
+      
+      // 记录压力事件
+      await this.logMemory({
+        type: 'error',
+        timestamp: Date.now(),
+        data: {
+          stressType: type,
+          context,
+          responseGene: primaryStressGene.id,
+        },
+      });
+      
+      // 表达压力基因（影响后续决策）
+      this.expressionEngine['applyStressModifier'](primaryStressGene.id);
+    }
   }
 
   /**
@@ -140,6 +274,8 @@ export class ClawBot {
     try {
       logger.info('Loading genome from chain...');
       
+      this.loadedGenes = [];
+      
       // Load all genes for each domain
       for (let domain = 0; domain < 32; domain++) {
         try {
@@ -150,7 +286,7 @@ export class ClawBot {
           
           // Add to expression engine cache
           for (const gene of genes) {
-            this.expressionEngine['geneCache'].set(gene.id, {
+            const normalizedGene: Gene = {
               id: Number(gene.id),
               domain: Number(gene.domain),
               origin: Number(gene.origin),
@@ -163,7 +299,10 @@ export class ClawBot {
               metabolicCost: Number(gene.metabolicCost),
               duplicateOf: Number(gene.duplicateOf),
               age: Number(gene.age),
-            });
+            };
+            
+            this.expressionEngine['geneCache'].set(gene.id, normalizedGene);
+            this.loadedGenes.push(normalizedGene);
           }
         } catch (err) {
           // Domain might have no genes
@@ -172,6 +311,9 @@ export class ClawBot {
 
       const geneCount = this.expressionEngine['geneCache'].size;
       logger.info(`Loaded ${geneCount} genes`);
+      
+      // 更新代谢追踪器的基因列表（新增）
+      this.metabolismTracker.setGenes(this.loadedGenes);
 
     } catch (error) {
       logger.error('Failed to load genes', { error });
@@ -310,16 +452,28 @@ export class ClawBot {
 
     // Get current state
     const state = await this.heartbeatService.getState();
+    
+    // 计算代谢成本（新增）
+    const metabolismBill = this.metabolismTracker.calculateDailyMetabolism();
+    const apiCallReport = this.metabolismTracker.getApiCallReport();
 
     data.summary = {
       decisionsCount,
       skillsExecuted: [...new Set(skillsExecuted)],
       balanceChange: state.balance,
+      metabolism: {
+        dailyCost: metabolismBill.totalCost,
+        apiCalls: apiCallReport.totalCalls,
+        apiCost: apiCallReport.totalCost,
+      },
     };
 
     // Create decision hash
     const decisionData = JSON.stringify(recentDecisions);
     data.decisionHash = ethers.keccak256(ethers.toUtf8Bytes(decisionData));
+    
+    // 记录心跳到代谢追踪器
+    this.metabolismTracker.recordHeartbeat();
   }
 
   /**

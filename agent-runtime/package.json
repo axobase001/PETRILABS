@@ -22,7 +22,8 @@
     "openai": "^4.20.0",
     "node-cron": "^3.0.3",
     "async-mutex": "^0.4.0",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "better-sqlite3": "^9.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

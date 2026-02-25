@@ -4,12 +4,16 @@
  */
 
 import { Gene, GeneDomain } from '../types';
+import { logger } from '../utils/logger';
 
 export class ExpressionEngine {
   private geneCache: Map<number, Gene> = new Map();
   private expressionCache: Map<number, number> = new Map();
   private lastCacheUpdate: number = 0;
   private CACHE_TTL = 60000; // 1 minute
+  
+  // 压力修饰符（新增）
+  private stressModifiers: Map<number, number> = new Map();
 
   constructor(private genomeHash: string) {}
 
@@ -37,6 +41,12 @@ export class ExpressionEngine {
 
     // Base expression = value * weight / scale
     let expression = (gene.value * gene.weight) / 1000000;
+
+    // Apply stress modifiers（新增）
+    const stressModifier = this.stressModifiers.get(geneId);
+    if (stressModifier) {
+      expression *= stressModifier;
+    }
 
     // Apply environmental modifiers
     if (environment.stressLevel && gene.domain === GeneDomain.STRESS_RESPONSE) {
@@ -104,6 +114,62 @@ export class ExpressionEngine {
     }
 
     return result;
+  }
+
+  /**
+   * Express a gene - 基因表达主入口（新增）
+   * D-染色体基因通过外部路由器执行
+   */
+  expressGene(geneId: number, router?: {
+    route(gene: Gene, params?: unknown): Promise<{
+      success: boolean;
+      data?: unknown;
+      cost: number;
+      error?: string;
+    }>;
+  }, params?: unknown): Promise<{
+    success: boolean;
+    data?: unknown;
+    cost: number;
+    error?: string;
+  }> | number {
+    const gene = this.geneCache.get(geneId);
+    if (!gene) {
+      return { success: false, cost: 0, error: 'Gene not found' };
+    }
+
+    // D-染色体（互联网技能）通过路由器执行
+    if (gene.domain === GeneDomain.API_UTILIZATION || 
+        gene.domain === GeneDomain.WEB_NAVIGATION) {
+      if (!router) {
+        return { success: false, cost: 0, error: 'Router not provided for D-chromosome gene' };
+      }
+      return router.route(gene, params);
+    }
+
+    // 其他染色体返回表达值
+    return this.calculateExpression(geneId);
+  }
+
+  /**
+   * Apply stress modifier to a gene（新增）
+   * 由压力响应系统调用
+   */
+  applyStressModifier(geneId: number, modifier: number = 1.5): void {
+    this.stressModifiers.set(geneId, modifier);
+    
+    // 清除表达缓存以强制重新计算
+    this.expressionCache.delete(geneId);
+    
+    logger.debug('Applied stress modifier', { geneId, modifier });
+  }
+
+  /**
+   * Clear stress modifiers（新增）
+   */
+  clearStressModifiers(): void {
+    this.stressModifiers.clear();
+    this.expressionCache.clear();
   }
 
   /**
