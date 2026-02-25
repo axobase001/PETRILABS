@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="gradDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4aa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00a884;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="90" fill="none" stroke="url(#gradDark)" stroke-width="4"/>
+  
+  <!-- Petri dish metaphor - outer ring -->
+  <circle cx="100" cy="100" r="75" fill="none" stroke="#00d4aa" stroke-width="2" opacity="0.6"/>
+  
+  <!-- DNA helix simplified -->
+  <path d="M70 60 Q100 80 70 100 Q100 120 70 140" fill="none" stroke="#00d4aa" stroke-width="3" stroke-linecap="round"/>
+  <path d="M130 60 Q100 80 130 100 Q100 120 130 140" fill="none" stroke="#00d4aa" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Connecting bars (DNA rungs) -->
+  <line x1="75" y1="75" x2="125" y2="75" stroke="#00a884" stroke-width="2" opacity="0.8"/>
+  <line x1="70" y1="100" x2="130" y2="100" stroke="#00a884" stroke-width="2" opacity="0.8"/>
+  <line x1="75" y1="125" x2="125" y2="125" stroke="#00a884" stroke-width="2" opacity="0.8"/>
+  
+  <!-- Central dot (life seed) -->
+  <circle cx="100" cy="100" r="8" fill="#00d4aa"/>
+  
+  <!-- Orbital dots (evolution/rotation) -->
+  <circle cx="100" cy="35" r="4" fill="#00d4aa" opacity="0.9"/>
+  <circle cx="160" cy="100" r="3" fill="#00a884" opacity="0.7"/>
+  <circle cx="100" cy="165" r="3" fill="#00a884" opacity="0.7"/>
+  <circle cx="40" cy="100" r="3" fill="#00a884" opacity="0.7"/>
+</svg>

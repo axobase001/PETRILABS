@@ -1,7 +1,10 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/axobase001/PETRILABS/main/docs/assets/logo-dark.svg#gh-dark-mode-only" width="120" alt="PETRILABS">
-<img src="https://raw.githubusercontent.com/axobase001/PETRILABS/main/docs/assets/logo-light.svg#gh-light-mode-only" width="120" alt="PETRILABS">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-light.svg">
+  <img src="docs/assets/logo-light.svg" width="120" alt="PETRILABS">
+</picture>
 
 # PETRILABS
 
