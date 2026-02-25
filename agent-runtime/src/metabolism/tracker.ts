@@ -54,6 +54,16 @@ interface ApiCallCost {
   cost: number;
 }
 
+// 认知支出记录
+interface CognitionCost {
+  timestamp: number;
+  provider: 'pollinations' | 'x402-llm';
+  model: string;
+  cost: number;
+  geneId: string;
+  tokens: number;
+}
+
 export class MetabolismTracker {
   // 默认成本配置
   private costs: MetabolicCosts = {
@@ -72,6 +82,7 @@ export class MetabolismTracker {
   private llmCalls: number = 0;
   private heartbeats: number = 0;
   private genes: Gene[] = [];
+  private cognitionCalls: CognitionCost[] = [];  // 新增：认知支出记录
   
   private dailyBill?: DailyMetabolismBill;
   private lastSettlementTime: number = 0;
@@ -131,6 +142,25 @@ export class MetabolismTracker {
   }
 
   /**
+   * 记录认知支出（新增：双模态认知）
+   */
+  recordCognition(cost: CognitionCost): void {
+    this.cognitionCalls.push(cost);
+    
+    // 同时计入 API 调用（如果是付费的）
+    if (cost.cost > 0) {
+      this.recordApiCall(cost.cost, cost.provider, cost.geneId);
+    }
+    
+    logger.debug('Cognition recorded', {
+      provider: cost.provider,
+      model: cost.model,
+      cost: cost.cost,
+      geneId: cost.geneId,
+    });
+  }
+
+  /**
    * 记录心跳
    */
   recordHeartbeat(): void {
@@ -149,8 +179,9 @@ export class MetabolismTracker {
     // 存储成本
     const storageCost = this.storageWrites * this.costs.storageWrite;
     
-    // API 调用成本
+    // API 调用成本（包含认知）
     const apiCallCosts = this.calculateApiCallCosts();
+    const cognitionCosts = this.calculateCognitionCosts();
     
     // LLM 推理成本
     const llmCost = this.llmCalls * this.costs.llmInference;
@@ -159,7 +190,7 @@ export class MetabolismTracker {
     const heartbeatCost = this.heartbeats * this.costs.heartbeatGas;
     
     // 汇总
-    const totalCost = geneMaintenance + storageCost + apiCallCosts.total + llmCost + heartbeatCost;
+    const totalCost = geneMaintenance + storageCost + apiCallCosts.total + llmCost + heartbeatCost + cognitionCosts.total;
     
     const bill: DailyMetabolismBill = {
       date: new Date().toISOString().split('T')[0],
@@ -167,11 +198,14 @@ export class MetabolismTracker {
       breakdown: {
         geneMaintenance,
         storageCost,
-        apiCalls: apiCallCosts.total,
+        apiCalls: apiCallCosts.total + cognitionCosts.total,
         llmInference: llmCost,
         heartbeatGas: heartbeatCost,
       },
-      apiCallDetails: apiCallCosts.details,
+      apiCallDetails: {
+        ...apiCallCosts.details,
+        cognition: cognitionCosts.details,
+      },
     };
     
     this.dailyBill = bill;
@@ -181,9 +215,42 @@ export class MetabolismTracker {
       total: totalCost.toFixed(6),
       genes: this.genes.length,
       apiCalls: apiCallCosts.details.count,
+      cognitionCalls: cognitionCosts.details.count,
     });
     
     return bill;
+  }
+
+  /**
+   * 计算认知成本（新增）
+   */
+  private calculateCognitionCosts(): { 
+    total: number; 
+    details: { count: number; byProvider: Record<string, { count: number; cost: number }> };
+  } {
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const recentCalls = this.cognitionCalls.filter(c => c.timestamp > oneDayAgo);
+    
+    const byProvider: Record<string, { count: number; cost: number }> = {};
+    let totalCost = 0;
+    
+    for (const call of recentCalls) {
+      totalCost += call.cost;
+      
+      if (!byProvider[call.provider]) {
+        byProvider[call.provider] = { count: 0, cost: 0 };
+      }
+      byProvider[call.provider].count++;
+      byProvider[call.provider].cost += call.cost;
+    }
+    
+    return {
+      total: totalCost,
+      details: {
+        count: recentCalls.length,
+        byProvider,
+      },
+    };
   }
 
   /**
@@ -326,6 +393,7 @@ export class MetabolismTracker {
     this.storageWrites = 0;
     this.llmCalls = 0;
     this.heartbeats = 0;
+    this.cognitionCalls = [];  // 新增：重置认知记录
     
     logger.info('Metabolism settled', { date: bill.date, total: bill.totalCost });
     

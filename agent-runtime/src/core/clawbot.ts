@@ -13,6 +13,7 @@ import HeartbeatService from '../chain/heartbeat';
 import { NkmcGateway } from '../gateways/nkmc';
 import { CapabilityRouter } from '../routers/capability';
 import MetabolismTracker from '../metabolism/tracker';
+import { CognitionRouter } from '../cognition';
 import { 
   AgentConfig, 
   AgentState, 
@@ -38,6 +39,9 @@ export class ClawBot {
   private nkmcGateway?: NkmcGateway;
   private capabilityRouter?: CapabilityRouter;
   private metabolismTracker: MetabolismTracker;
+  
+  // 双模态认知路由器（新增）
+  private cognitionRouter?: CognitionRouter;
   
   private isRunning = false;
   private decisionInterval?: NodeJS.Timeout;
@@ -84,6 +88,19 @@ export class ClawBot {
       
       logger.info('nkmc gateway initialized');
     }
+    
+    // Initialize dual-mode cognition router（新增：双模态认知）
+    this.cognitionRouter = new CognitionRouter({
+      wallet: new ethers.Wallet(config.privateKey, this.provider),
+      metabolism: this.metabolismTracker,
+      genome: {
+        triggerStressResponse: async (type: string, context: unknown) => {
+          await this.triggerStressResponse(type, context);
+        },
+      },
+    });
+    
+    logger.info('Dual-mode cognition router initialized (Pollinations + x402)');
 
     // Genome registry contract
     const GENOME_REGISTRY_ABI = [

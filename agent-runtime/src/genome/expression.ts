@@ -119,36 +119,81 @@ export class ExpressionEngine {
   /**
    * Express a gene - 基因表达主入口（新增）
    * D-染色体基因通过外部路由器执行
+   * B-染色体基因通过认知路由器执行
    */
-  expressGene(geneId: number, router?: {
-    route(gene: Gene, params?: unknown): Promise<{
-      success: boolean;
-      data?: unknown;
-      cost: number;
-      error?: string;
-    }>;
-  }, params?: unknown): Promise<{
+  async expressGene(geneId: number, config?: {
+    capabilityRouter?: {
+      route(gene: Gene, params?: unknown): Promise<{
+        success: boolean;
+        data?: unknown;
+        cost: number;
+        error?: string;
+      }>;
+    };
+    cognitionRouter?: {
+      reason(request: { gene: Gene; prompt: string }): Promise<{
+        success: boolean;
+        content: string;
+        cost: number;
+        error?: string;
+      }>;
+    };
+    params?: unknown;
+    prompt?: string;
+  }): Promise<{
     success: boolean;
     data?: unknown;
+    content?: string;
     cost: number;
     error?: string;
-  }> | number {
+  }> {
     const gene = this.geneCache.get(geneId);
     if (!gene) {
       return { success: false, cost: 0, error: 'Gene not found' };
     }
 
-    // D-染色体（互联网技能）通过路由器执行
-    if (gene.domain === GeneDomain.API_UTILIZATION || 
-        gene.domain === GeneDomain.WEB_NAVIGATION) {
-      if (!router) {
-        return { success: false, cost: 0, error: 'Router not provided for D-chromosome gene' };
+    // B-染色体（认知）通过认知路由器执行
+    if (gene.domain === GeneDomain.COGNITION || 
+        gene.domain === GeneDomain.PLANNING ||
+        gene.domain === GeneDomain.LEARNING) {
+      if (!config?.cognitionRouter) {
+        return { success: false, cost: 0, error: 'CognitionRouter not provided for B-chromosome gene' };
       }
-      return router.route(gene, params);
+      if (!config?.prompt) {
+        return { success: false, cost: 0, error: 'Prompt not provided for B-chromosome gene' };
+      }
+      
+      const result = await config.cognitionRouter.reason({
+        gene,
+        prompt: config.prompt,
+      });
+      
+      return {
+        success: result.success,
+        content: result.content,
+        cost: result.cost,
+        error: result.error,
+      };
     }
 
-    // 其他染色体返回表达值
-    return this.calculateExpression(geneId);
+    // D-染色体（互联网技能）通过能力路由器执行
+    if (gene.domain === GeneDomain.API_UTILIZATION || 
+        gene.domain === GeneDomain.WEB_NAVIGATION) {
+      if (!config?.capabilityRouter) {
+        return { success: false, cost: 0, error: 'CapabilityRouter not provided for D-chromosome gene' };
+      }
+      const result = await config.capabilityRouter.route(gene, config.params);
+      return {
+        success: result.success,
+        data: result.data,
+        cost: result.cost,
+        error: result.error,
+      };
+    }
+
+    // 其他染色体返回表达值（同步）
+    const expression = this.calculateExpression(geneId);
+    return { success: true, data: expression, cost: 0 };
   }
 
   /**
