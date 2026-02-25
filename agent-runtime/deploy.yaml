@@ -1,0 +1,113 @@
+---
+# PETRILABS Agent Runtime - Akash Deployment SDL
+# ClawBot with dual-mode cognition and nkmc gateway
+
+version: "2.0"
+
+services:
+  clawbot:
+    # Build from source or use pre-built image
+    image: petrilabs/agent-runtime:latest
+    
+    env:
+      # Agent Identity (Required)
+      - AGENT_ADDRESS=${AGENT_ADDRESS}
+      - GENOME_HASH=${GENOME_HASH}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      
+      # Blockchain (Base L2)
+      - RPC_URL=${RPC_URL:-https://mainnet.base.org}
+      - CHAIN_ID=${CHAIN_ID:-8453}
+      
+      # Contract Addresses
+      - GENOME_REGISTRY_ADDRESS=${GENOME_REGISTRY_ADDRESS}
+      - PETRI_AGENT_V2_ADDRESS=${PETRI_AGENT_V2_ADDRESS}
+      
+      # LLM Configuration
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-anthropic/claude-3-opus-20240229}
+      
+      # Intervals (ms)
+      - HEARTBEAT_INTERVAL_MS=${HEARTBEAT_INTERVAL_MS:-21600000}  # 6 hours
+      - DECISION_INTERVAL_MS=${DECISION_INTERVAL_MS:-3600000}     # 1 hour
+      
+      # Turbo Storage (Arweave)
+      - TURBO_UPLOAD_URL=${TURBO_UPLOAD_URL:-https://turbo.ardrive.io}
+      - WALLET_PRIVATE_KEY=${WALLET_PRIVATE_KEY}  # Base L2 for x402
+      
+      # nkmc Gateway (Optional - for D-chromosome internet skills)
+      - NKMC_JWT=${NKMC_JWT}
+      - NKMC_BASE_URL=${NKMC_BASE_URL:-https://api.nkmc.ai/v1}
+      - NKMC_CACHE_PATH=/app/data/nkmc-cache.db
+      
+      # Cognition Providers (Optional - for B-chromosome premium reasoning)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      
+      # Cognition Budget Settings
+      - COGNITION_SURVIVAL_RESERVE=${COGNITION_SURVIVAL_RESERVE:-0.5}
+      - COGNITION_MAX_RATIO=${COGNITION_MAX_RATIO:-0.3}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=production
+      
+      # Data paths
+      - SKILLS_PATH=/app/skills
+      - DATA_PATH=/app/data
+    
+    expose:
+      - port: 3000
+        as: 80
+        to:
+          - global: true
+    
+    # Resource requirements
+    resources:
+      cpu:
+        units: 1
+      memory:
+        size: 2Gi
+      storage:
+        size: 10Gi
+    
+    # Health check
+    params:
+      service:
+        liveness_probe:
+          http_get:
+            path: /health
+            port: 3000
+          initial_delay_seconds: 60
+          period_seconds: 30
+          timeout_seconds: 10
+
+profiles:
+  compute:
+    clawbot:
+      resources:
+        cpu:
+          units: 1
+        memory:
+          size: 2Gi
+        storage:
+          size: 10Gi
+  
+  placement:
+    akash:
+      attributes:
+        host: akash
+      signedBy:
+        anyOf:
+          - "akash1365yvmc4s7awdyj3n2sav7xfx76adc6dnmlx63"
+      pricing:
+        clawbot:
+          denom: uakt
+          amount: 10000
+
+deployment:
+  clawbot:
+    akash:
+      profile: clawbot
+      count: 1
