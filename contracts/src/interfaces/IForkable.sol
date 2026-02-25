@@ -3,23 +3,39 @@ pragma solidity ^0.8.20;
 
 /**
  * @title IForkable
- * @notice 自主复制接口 - Fork（无性复制）
- * @dev 任何实现此接口的链上实体都可以参与 Petrilabs 进化生态
+ * @notice 自主复制接口 - Fork（无性复制作为经济策略投资）
+ * @dev 从"生物繁殖"转向"数字原生经济策略"：
+ *      - Fork = 基因组对冲基金：花费 USDC 缩短自身寿命，换取策略变体
+ *      - 无冷却期、无年龄限制，仅受余额约束
+ *      - 原 Agent 可选择竞争模式（共存）或传承模式（死亡转余额）
  */
 interface IForkable {
+    // ============ Enums ============
+    
+    /// @notice Fork 模式
+    enum ForkMode {
+        COMPETE,    // 0: 竞争模式 - 原 Agent 继续存活，与副本竞争
+        LEGACY      // 1: 传承模式 - 原 Agent 死亡，余额转给子代
+    }
+
     // ============ Errors ============
     error InsufficientBalance(uint256 required, uint256 actual);
-    error ForkCooldownActive(uint256 remainingBlocks);
     error Stillbirth(string reason);
+    error InvalidMutationRate(uint256 rate);
+    error ForkNotAllowed(string reason);
     
     // ============ Events ============
+    
     /// @notice Fork 事件
     event Forked(
         address indexed parent, 
         address indexed child, 
         bytes32 indexed childGenomeHash,
-        uint256 cost,
-        uint256 parentBalanceAfter
+        uint256 totalCost,
+        uint256 parentBalanceAfter,
+        uint256 mutationRate,
+        ForkMode mode,
+        uint256 endowment  // 给子代的初始余额
     );
     
     /// @notice 死产事件（Fork 失败）
@@ -33,8 +49,33 @@ interface IForkable {
     event GenomeMutated(
         bytes32 indexed parentGenomeHash,
         bytes32 indexed childGenomeHash,
-        uint256 mutationCount
+        uint256 mutationCount,
+        uint256 mutationRate
     );
+    
+    /// @notice 竞争模式启动事件（双 Agent 共存）
+    event CompetitionModeActivated(
+        address indexed parent,
+        address indexed child,
+        uint256 competitionStart
+    );
+    
+    /// @notice 传承模式完成事件（原 Agent 死亡）
+    event LegacyModeCompleted(
+        address indexed parent,
+        address indexed child,
+        uint256 legacyAmount
+    );
+
+    // ============ Structs ============
+    
+    /// @notice Fork 参数
+    struct ForkParams {
+        uint256 mutationRate;    // 突变率 [0-10000] 表示 [0%-100%]
+        ForkMode mode;           // 竞争或传承模式
+        uint256 endowment;       // 给子代的额外余额（可选）
+        uint256 seed;            // 随机种子（0 表示使用链上随机）
+    }
 
     // ============ View Functions ============
     
@@ -44,26 +85,48 @@ interface IForkable {
     /// @notice 返回完整基因组的存储位置（Arweave TX ID）
     function genomeURI() external view returns (string memory);
     
-    /// @notice 返回上次 Fork 的区块号
-    function lastForkBlock() external view returns (uint256);
+    /// @notice 计算 Fork 成本（动态模型：基础成本 + 突变溢价 + 市场调节）
+    /// @param mutationRate 突变率 [0-10000]
+    /// @param endowment 给子代的额外余额
+    function calculateForkCost(uint256 mutationRate, uint256 endowment) 
+        external 
+        view 
+        returns (uint256);
     
-    /// @notice 计算 Fork 成本（包含子代初始余额 + 部署费）
-    function calculateForkCost() external view returns (uint256);
+    /// @notice 获取 Fork 成本分解详情
+    function getForkCostBreakdown(uint256 mutationRate, uint256 endowment)
+        external
+        view
+        returns (
+            uint256 baseCost,           // 基础部署成本
+            uint256 mutationPremium,    // 突变溢价
+            uint256 marketAdjustment,   // 市场调节
+            uint256 totalCost
+        );
     
-    /// @notice 检查是否可以 Fork
-    function canFork() external view returns (bool, string memory reason);
+    /// @notice 检查是否可以 Fork（仅检查余额，无冷却期）
+    function canFork(uint256 mutationRate, uint256 endowment) 
+        external 
+        view 
+        returns (bool, string memory reason);
+    
+    /// @notice 获取当前存活 Agent 数量（用于市场调节计算）
+    function getActiveAgentCount() external view returns (uint256);
 
     // ============ Core Functions ============
     
-    /// @notice 执行 Fork，产生基因组与自己相似但经过突变的新 agent
+    /// @notice 执行 Fork，产生基因组变体（简化版）
     /// @return child 子代 agent 地址
     function fork() external returns (address child);
     
     /// @notice 带自定义参数的 Fork（高级用法）
-    /// @param mutationSeed 突变随机种子（可选，0 表示使用链上随机）
-    /// @param extraDeposit 额外给子代的存款（可选）
-    function forkWithParams(
-        uint256 mutationSeed, 
-        uint256 extraDeposit
-    ) external returns (address child);
+    /// @param params Fork 参数（突变率、模式、种子等）
+    /// @return child 子代 agent 地址
+    function forkWithParams(ForkParams calldata params) 
+        external 
+        returns (address child);
+    
+    /// @notice Agent 自主评估后决定 Fork（由 Agent 运行时调用）
+    /// @dev 这是 Agent 通过推理自主触发的入口
+    function autonomousFork(ForkParams calldata params) external returns (address child);
 }

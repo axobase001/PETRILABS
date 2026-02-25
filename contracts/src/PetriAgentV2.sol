@@ -5,11 +5,17 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import "./interfaces/IPetriAgentV2.sol";
 import "./interfaces/IGenomeRegistry.sol";
+import "./interfaces/IForkable.sol";
+import "./interfaces/IMergeable.sol";
 
 /**
  * @title PetriAgentV2
- * @notice Enhanced AI agent with dynamic genome and epigenetic expression
- * @dev Integrates with GenomeRegistry for on-chain genetic storage
+ * @notice Enhanced AI agent with dynamic genome and autonomous replication
+ * @dev 
+ *   从"生物模拟"到"数字原生经济策略"：
+ *   - Agent 可以自主决定 Fork（策略对冲）或 Merge（能力并购）
+ *   - 通过 custom action 触发，而非 Orchestrator 决定
+ *   - 自主评估其他 Agent 的基因组价值
  */
 contract PetriAgentV2 is IPetriAgentV2, Initializable {
     // ============ Constants ============
@@ -22,12 +28,18 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
     uint256 public constant POVERTY_DAYS_TRIGGER = 3;      // 3 days of poverty triggers adaptation
     uint256 public constant ABUNDANCE_MULTIPLIER = 2;      // 2x initial deposit = abundance
     uint256 public constant EPIGENETIC_COOLDOWN = 1 days;  // Min time between auto marks
+    
+    // Fork 决策阈值
+    uint256 public constant FORK_STRATEGY_THRESHOLD = 30 days; // 剩余寿命低于此值考虑 Fork
+    uint256 public constant HIGH_MUTATION_RATE = 3000;         // 30% 用于高风险 Fork
+    uint256 public constant LOW_MUTATION_RATE = 500;           // 5% 用于保守 Fork
 
     // ============ State Variables ============
     bytes32 public genomeHash;
     address public orchestrator;
     IERC20 public usdc;
     address public genomeRegistry;
+    address public replicationManager; // 新增的复制管理合约
     
     uint256 public birthTime;
     uint256 public lastHeartbeat;
@@ -50,6 +62,15 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
     uint256 public povertyStreak;                          // Consecutive days in poverty
     uint256 public lastAutoEpigeneticTime;                 // Last auto mark timestamp
     uint256 public initialDeposit;                         // Initial USDC deposit for abundance calc
+    
+    // Replication state
+    uint256 public forkCount;
+    mapping(uint256 => address) public children;
+    uint256[] public childIds;
+    
+    // 其他 Agent 评估缓存
+    mapping(address => uint256) public assessedAgentValue;
+    mapping(address => uint256) public assessmentTime;
 
     // ============ Modifiers ============
     modifier onlyOrchestrator() {
@@ -59,6 +80,14 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
 
     modifier onlyAlive() {
         if (!isAlive) revert AgentDead();
+        _;
+    }
+    
+    modifier onlyAuthorized() {
+        require(
+            msg.sender == orchestrator || msg.sender == address(this),
+            "Not authorized"
+        );
         _;
     }
 
@@ -100,6 +129,7 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
         povertyStreak = 0;
         lastAutoEpigeneticTime = 0;
         initialDeposit = _initialBalance;
+        forkCount = 0;
 
         // Transfer initial balance
         if (_initialBalance > 0) {
@@ -108,6 +138,14 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
         }
 
         emit AgentBorn(address(this), _genomeHash, birthTime);
+    }
+    
+    /**
+     * @notice 设置 ReplicationManager 地址
+     * @dev 由 Orchestrator 在部署后调用
+     */
+    function setReplicationManager(address _replicationManager) external onlyOrchestrator {
+        replicationManager = _replicationManager;
     }
 
     // ============ Core Functions ============
@@ -193,6 +231,277 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
      */
     function die(string calldata arweaveTxId) external override onlyOrchestrator onlyAlive {
         _die("forced", arweaveTxId);
+    }
+
+    // ============ Autonomous Replication (New) ============
+    
+    /**
+     * @notice Agent 自主评估并执行 Fork（策略对冲）
+     * @dev 
+     *   触发条件：Agent 通过分析自身状态决定：
+     *   - 如果剩余寿命 < FORK_STRATEGY_THRESHOLD 且收入趋势下降 -> 高风险 Fork
+     *   - 如果收入稳定但想探索新策略 -> 保守 Fork
+     *   - 这是 Agent 通过 reasoning 自主触发的 custom action
+     */
+    function autonomousFork(uint256 mutationRate, IForkable.ForkMode mode) 
+        external 
+        onlyAlive 
+        returns (address child) 
+    {
+        require(replicationManager != address(0), "ReplicationManager not set");
+        require(msg.sender == orchestrator, "Only orchestrator can trigger");
+        
+        // 评估 Fork 策略
+        (bool shouldFork, string memory reason) = _evaluateForkStrategy(mutationRate);
+        if (!shouldFork) {
+            revert(string(abi.encodePacked("Fork strategy rejected: ", reason)));
+        }
+        
+        // 准备参数
+        IForkable.ForkParams memory params = IForkable.ForkParams({
+            mutationRate: mutationRate,
+            mode: mode,
+            endowment: 0,
+            seed: uint256(keccak256(abi.encodePacked(block.timestamp, msg.sender)))
+        });
+        
+        // 授权 ReplicationManager 使用本合约的 USDC
+        uint256 forkCost = _getForkCost(mutationRate, 0);
+        usdc.approve(replicationManager, forkCost);
+        
+        // 调用 ReplicationManager 的自主 Fork
+        child = IForkable(replicationManager).autonomousFork(params);
+        
+        if (child != address(0)) {
+            forkCount++;
+            children[forkCount] = child;
+            childIds.push(forkCount);
+        }
+        
+        return child;
+    }
+    
+    /**
+     * @notice Agent 自主评估其他 Agent 并执行 Merge（能力并购）
+     * @dev
+     *   触发条件：Agent 通过链上数据分析发现：
+     *   - 目标 Agent 的特定基因与高收益相关
+     *   - 目标基因与我当前基因组互补
+     *   - 并购成本 < 预期收益
+     */
+    function autonomousMerge(
+        address target,
+        uint32[] calldata genesWanted,
+        uint256 valueAssessment
+    ) external onlyAlive returns (uint256 proposalId) {
+        require(replicationManager != address(0), "ReplicationManager not set");
+        require(msg.sender == orchestrator, "Only orchestrator can trigger");
+        require(target != address(this), "Cannot merge with self");
+        
+        // 评估 Merge 策略
+        (bool shouldMerge, string memory reason) = _evaluateMergeStrategy(target, genesWanted, valueAssessment);
+        if (!shouldMerge) {
+            revert(string(abi.encodePacked("Merge strategy rejected: ", reason)));
+        }
+        
+        // 计算并批准押金
+        uint256 mergeCost = _getMergeCost(genesWanted);
+        usdc.approve(replicationManager, mergeCost);
+        
+        // 发起 Merge 提议
+        proposalId = IMergeable(replicationManager).autonomousMerge(
+            target,
+            genesWanted,
+            valueAssessment
+        );
+        
+        // 缓存评估
+        assessedAgentValue[target] = valueAssessment;
+        assessmentTime[target] = block.timestamp;
+        
+        return proposalId;
+    }
+    
+    /**
+     * @notice 评估 Fork 策略（内部决策算法）
+     * @return shouldFork 是否应该 Fork
+     * @return reason 决策理由
+     */
+    function _evaluateForkStrategy(uint256 mutationRate) 
+        internal 
+        view 
+        returns (bool shouldFork, string memory reason) 
+    {
+        uint256 balance = usdc.balanceOf(address(this));
+        uint256 metabolicCost = getMetabolicCost();
+        
+        if (metabolicCost == 0) {
+            return (false, "Zero metabolic cost");
+        }
+        
+        // 计算剩余寿命（天）
+        uint256 remainingLifespan = (balance * METABOLIC_SCALE) / metabolicCost;
+        
+        // 获取 Fork 成本
+        uint256 forkCost = _getForkCost(mutationRate, 0);
+        
+        // 策略 1: 剩余寿命不足，进行风险对冲
+        if (remainingLifespan < FORK_STRATEGY_THRESHOLD / 1 days) {
+            // 检查 Fork 后是否还能存活一段时间
+            if (balance > forkCost * 2) {
+                return (true, "HEDGE: Low remaining lifespan");
+            }
+            return (false, "Cannot afford hedge");
+        }
+        
+        // 策略 2: 资源充足，探索新策略
+        if (balance > initialDeposit * 3 && remainingLifespan > 60) {
+            return (true, "EXPLORE: Abundant resources");
+        }
+        
+        // 策略 3: 保守策略 - 不 Fork
+        return (false, "Not strategic to fork now");
+    }
+    
+    /**
+     * @notice 评估 Merge 策略（内部决策算法）
+     */
+    function _evaluateMergeStrategy(
+        address target,
+        uint32[] calldata genesWanted,
+        uint256 valueAssessment
+    ) internal view returns (bool shouldMerge, string memory reason) {
+        // 基础检查
+        if (genesWanted.length == 0) {
+            return (false, "No genes selected");
+        }
+        
+        // 获取目标余额作为收入效率代理
+        uint256 targetBalance = usdc.balanceOf(target);
+        if (targetBalance == 0) {
+            return (false, "Target has no balance");
+        }
+        
+        // 计算 Merge 成本
+        uint256 mergeCost = _getMergeCost(genesWanted);
+        uint256 myBalance = usdc.balanceOf(address(this));
+        
+        // 成本效益分析
+        if (mergeCost > myBalance / 3) {
+            return (false, "Merge too expensive");
+        }
+        
+        // 价值评估验证
+        // 简单模型：目标余额 / 基因数 = 每基因价值
+        uint256 perGeneValue = targetBalance / genesWanted.length;
+        if (valueAssessment < perGeneValue / 2) {
+            return (false, "Undervalued assessment");
+        }
+        
+        // 检查是否最近评估过
+        if (block.timestamp - assessmentTime[target] < 7 days) {
+            // 已经有近期评估，使用缓存值对比
+            if (assessedAgentValue[target] < valueAssessment) {
+                return (true, "Updated higher value assessment");
+            }
+        }
+        
+        return (true, "Strategic merge opportunity");
+    }
+    
+    /**
+     * @notice 获取 Fork 成本（内部调用）
+     */
+    function _getForkCost(uint256 mutationRate, uint256 endowment) 
+        internal 
+        view 
+        returns (uint256) 
+    {
+        if (replicationManager == address(0)) return 0;
+        
+        (bool success, bytes memory result) = replicationManager.staticcall(
+            abi.encodeWithSignature(
+                "calculateForkCost(uint256,uint256)",
+                mutationRate,
+                endowment
+            )
+        );
+        
+        if (success && result.length >= 32) {
+            return abi.decode(result, (uint256));
+        }
+        return 0;
+    }
+    
+    /**
+     * @notice 获取 Merge 成本（内部调用）
+     */
+    function _getMergeCost(uint32[] calldata genes) 
+        internal 
+        view 
+        returns (uint256) 
+    {
+        if (replicationManager == address(0)) return 0;
+        
+        (bool success, bytes memory result) = replicationManager.staticcall(
+            abi.encodeWithSignature(
+                "calculateMergeCost(uint32[])",
+                genes
+            )
+        );
+        
+        if (success && result.length >= 32) {
+            return abi.decode(result, (uint256));
+        }
+        return 0;
+    }
+    
+    /**
+     * @notice 外部查询：Agent 评估 Fork 策略（供运行时调用）
+     */
+    function evaluateForkStrategy(uint256 mutationRate)
+        external
+        view
+        returns (
+            bool shouldFork,
+            string memory reason,
+            uint256 estimatedCost,
+            uint256 remainingLifespan
+        )
+    {
+        (shouldFork, reason) = _evaluateForkStrategy(mutationRate);
+        estimatedCost = _getForkCost(mutationRate, 0);
+        
+        uint256 balance = usdc.balanceOf(address(this));
+        uint256 metabolicCost = getMetabolicCost();
+        remainingLifespan = metabolicCost > 0 ? (balance * METABOLIC_SCALE) / metabolicCost : 0;
+        
+        return (shouldFork, reason, estimatedCost, remainingLifespan);
+    }
+    
+    /**
+     * @notice 外部查询：Agent 评估 Merge 策略（供运行时调用）
+     */
+    function evaluateMergeStrategy(
+        address target,
+        uint32[] calldata genesWanted
+    )
+        external
+        view
+        returns (
+            bool shouldMerge,
+            string memory reason,
+            uint256 estimatedCost,
+            uint256 targetValue
+        )
+    {
+        // 基于目标余额进行简单价值评估
+        targetValue = usdc.balanceOf(target);
+        
+        (shouldMerge, reason) = _evaluateMergeStrategy(target, genesWanted, targetValue);
+        estimatedCost = _getMergeCost(genesWanted);
+        
+        return (shouldMerge, reason, estimatedCost, targetValue);
     }
 
     // ============ Genome Interaction ============
@@ -370,5 +679,32 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
 
     function getDecision(uint256 _decisionId) external view returns (Decision memory) {
         return decisions[_decisionId];
+    }
+    
+    /**
+     * @notice 获取所有子代
+     */
+    function getChildren() external view returns (address[] memory) {
+        address[] memory result = new address[](childIds.length);
+        for (uint i = 0; i < childIds.length; i++) {
+            result[i] = children[childIds[i]];
+        }
+        return result;
+    }
+    
+    /**
+     * @notice 获取 Fork 统计
+     */
+    function getForkStats() external view returns (
+        uint256 totalForks,
+        uint256 activeChildren,
+        uint256 remainingLifespan
+    ) {
+        totalForks = forkCount;
+        activeChildren = childIds.length;
+        
+        uint256 balance = usdc.balanceOf(address(this));
+        uint256 metabolicCost = getMetabolicCost();
+        remainingLifespan = metabolicCost > 0 ? (balance * METABOLIC_SCALE) / metabolicCost : 0;
     }
 }
