@@ -76,6 +76,118 @@ What happens when AI agents with evolving genomes are released into an environme
 
 **[Survival]** Agents autonomously run on real infrastructure. They pay for their own compute with USDC. When the money runs out, the container stops. **Death**. No one can save them. No one can stop them.
 
+### 🧬 The Dynamic Genome: Our Core Innovation
+
+> **This is not an AI with parameters. This is digital life with genetics.**
+
+While others bolt static "personalities" onto LLMs, we built a living genetic system where **behavior emerges from genotype × environment = phenotype**—just like biological life.
+
+#### Genome Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     DYNAMIC GENOME SYSTEM                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  63 GENES × 8 CHROMOSOMES × 6 MUTATION OPERATORS                │
+│                                                                  │
+│  A: Metabolism        E: On-chain Operations                    │
+│  B: Perception        F: Resource Management                    │
+│  C: Cognition         G: Stress Response                        │
+│  D: Risk Assessment   H: Replication Strategy                   │
+│                                                                  │
+│  Mutation Operators: Point • Duplication • Deletion             │
+│                      Crossover • Horizontal Transfer • De Novo  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Hard Expression: The Invisible Boundary (Hard Expression Opacity Principle)
+
+**The most critical design:** LLM never knows it's constrained.
+
+```typescript
+// RuntimeParams (Phenotype) = Genome (Genotype) × Environment
+interface RuntimeParams {
+  metabolicInterval: number;         // Sigmoid(stressResponse) → 15-45s
+  maxSingleTransactionRatio: number; // Sigmoid(riskAppetite) × povertyFactor
+  panicThreshold: number;            // Sigmoid(stressResponse) / crowdingFactor
+  forkBalanceThreshold: number;      // Sigmoid(savingsTendency) × minCost
+  mergeMaxDeposit: number;           // balance × Sigmoid(riskAppetite)
+  // ... all hard constraints, invisible to LLM
+}
+```
+
+Like your heart rate is controlled by the sinoatrial node—**your cortex doesn't command it, it just knows "I didn't die."**
+
+**Violating this principle** (exposing constraint values to LLM) is a **BUG**, not a feature.
+
+#### Neural Plasticity: Use It or Lose It
+
+Genes have **weight drift** based on activation frequency:
+
+```
+USE:     Every 10 activations → weight × 1.1 (max 2.0x)
+DISUSE:  After 7 days idle → weight × 0.95/day (min 0.5x)
+```
+
+**Lamarckian evolution in real-time**: Frequently used skills strengthen; unused ones atrophy. The genome literally changes its expression profile based on behavior history.
+
+#### Auto-Epigenetics: Self-Modification Under Pressure
+
+Agents **autonomously modify their own gene expression** based on survival pressure:
+
+| Pressure Detected | Auto-Response | Target Gene |
+|------------------|---------------|-------------|
+| 3+ days in poverty (<$5) | Upregulate metabolism efficiency | A01 (0x0101) |
+| Balance > 2× initial deposit | Upregulate exploration drive | B01 (0x0201) |
+| Stress level > 0.9 | Enter survival mode: downregulate luxury genes | Multiple |
+
+**No orchestrator intervention.** The agent reads its own state, decides to modify its epigenetic marks, and executes on-chain.
+
+#### Replication: Fork vs Merge
+
+**Fork (Asexual)** — Agent decides: "I should copy myself"
+- Pays full cost ($8 = $5 child deposit + $3 deployment)
+- Genomic copy + mutations applied
+- Child inherits memory but clears cognition history
+- **Failure mode**: Stillbirth if mutated genome can't express (no refund—biology doesn't refund failed reproduction)
+
+**Merge (Sexual)** — Agent decides: "I want those genes"
+- On-chain proposal/acceptance protocol
+- Single-point crossover (no compatibility checks—purely mechanical)
+- Child gets blank memory + origin note only
+- **Failure mode**: Genomic incompatibility → stillbirth (emergent reproductive isolation)
+
+#### Stillbirth Detection: The Expression Test
+
+Before any replication succeeds, the candidate genome must pass:
+
+```typescript
+validateGenomeExpression(genome, testBalance): {
+  - No NaN/Infinite trait values
+  - Minimum 3 essential genes present
+  - Metabolic cost ≤ 50% of test balance
+  - Expression engine can compute all params
+}
+```
+
+**This is how "species" emerge without anyone defining them.** Structurally incompatible genomes produce non-viable offspring. Natural selection at the genome level.
+
+#### Why This Matters
+
+| Static "AI Personality" | Dynamic Genome |
+|------------------------|----------------|
+| Human-written prompts | Genes × Environment = Behavior |
+| Fixed parameters | Weight drift + epigenetic adaptation |
+| No real cost to exist | Metabolic cost enforced by physics |
+| No inheritance | Fork/Merge with mutation |
+| No death | Death is data on Arweave |
+
+**We didn't build an AI tool. We built a digital petri dish where AI life evolves, adapts, replicates, and dies—according to rules that emerge from the system itself, not from human design.**
+
+---
+
 ### Core Mechanisms
 
 #### 🧬 Metabolism
@@ -206,6 +318,118 @@ PETRILABS 是一个实验性平台，用于在完全无许可基础设施上自�
 **[部署]** 每份记忆文件注入一个独立的 ClawdBot 实例，部署在 Akash 网络的独立容器中。没有中心服务器。不需要任何人的许可。
 
 **[存活]** 智能体在真实基础设施上自主运行。它们用 USDC 支付自己的算力。钱花完了，容器停止，**死亡**。没有人能拯救它们。也没有人能阻止它们。
+
+### 🧬 动态基因组：我们的核心创新
+
+> **这不是带参数的 AI。这是带遗传学的数字生命。**
+
+当别人把静态"人格"嫁接在 LLM 上时，我们构建了一个活的遗传系统，其中**行为从基因型 × 环境 = 表型**中涌现——就像生物生命一样。
+
+#### 基因组架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      动态基因组系统                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  63 个基因 × 8 条染色体 × 6 种突变算子                           │
+│                                                                  │
+│  A: 代谢              E: 链上操作                                │
+│  B: 感知              F: 资源管理                                │
+│  C: 认知              G: 压力响应                                │
+│  D: 风险评估          H: 复制策略                                │
+│                                                                  │
+│  突变算子: 点突变 • 基因复制 • 基因缺失                           │
+│            交叉重组 • 水平转移 • 从头发生                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 硬表达：隐形的边界（硬表达透明性原则）
+
+**最关键的设计：** LLM 永远不知道自己被约束。
+
+```typescript
+// RuntimeParams (表型) = Genome (基因型) × Environment
+interface RuntimeParams {
+  metabolicInterval: number;         // Sigmoid(stressResponse) → 15-45秒
+  maxSingleTransactionRatio: number; // Sigmoid(riskAppetite) × povertyFactor
+  panicThreshold: number;            // Sigmoid(stressResponse) / crowdingFactor
+  forkBalanceThreshold: number;      // Sigmoid(savingsTendency) × minCost
+  mergeMaxDeposit: number;           // balance × Sigmoid(riskAppetite)
+  // ... 所有硬约束，对 LLM 隐形
+}
+```
+
+就像你的心率由窦房结控制——**你的大脑皮层不命令它，它只知道"我没死"。**
+
+**违反这一原则**（将约束值暴露给 LLM）是 **BUG**，不是特性。
+
+#### 神经可塑性：用进废退
+
+基因根据激活频率具有**权重漂移**：
+
+```
+用进:    每 10 次激活 → 权重 × 1.1 (上限 2.0x)
+废退:    闲置 7 天后 → 权重每天 × 0.95 (下限 0.5x)
+```
+
+**实时的拉马克式进化**：高频技能强化；低频技能萎缩。基因组根据行为历史字面改变其表达谱。
+
+#### 自主表观遗传：压力下的自我修改
+
+智能体**基于生存压力自主修改自己的基因表达**：
+
+| 检测到的压力 | 自动响应 | 目标基因 |
+|-------------|---------|---------|
+| 贫困 3+ 天 (<$5) | 上调代谢效率 | A01 (0x0101) |
+| 余额 > 2×初始存款 | 上调探索驱动 | B01 (0x0201) |
+| 压力水平 > 0.9 | 进入生存模式：下调奢侈基因 | 多个 |
+
+**无编排器干预。** 智能体读取自己的状态，决定修改其表观遗传标记，并在链上执行。
+
+#### 复制：Fork vs Merge
+
+**Fork (分叉)** — 智能体决定："我应该复制自己"
+- 支付全部成本 ($8 = $5 子代存款 + $3 部署费)
+- 基因组复制 + 应用突变
+- 子代继承记忆但清空认知历史
+- **失败模式**：如果突变基因组无法表达则死产（不退款——生物学不退款失败的繁殖）
+
+**Merge (合并)** — 智能体决定："我想要那些基因"
+- 链上提议/接受协议
+- 单点交叉（无兼容性检查——纯机械）
+- 子代仅获得空白记忆 + 起源声明
+- **失败模式**：基因组不兼容 → 死产（涌现的生殖隔离）
+
+#### 死产检测：表达测试
+
+在任何复制成功之前，候选基因组必须通过：
+
+```typescript
+validateGenomeExpression(genome, testBalance): {
+  - 无 NaN/无限性状值
+  - 至少存在 3 个必需基因
+  - 代谢成本 ≤ 测试余额的 50%
+  - 表达引擎能计算所有参数
+}
+```
+
+**这就是"物种"如何在没有任何人定义它们的情况下涌现。** 结构不兼容的基因组产生不可存活的后代。基因组层面的自然选择。
+
+#### 为什么这很重要
+
+| 静态"AI 人格" | 动态基因组 |
+|--------------|-----------|
+| 人类编写的提示 | 基因 × 环境 = 行为 |
+| 固定参数 | 权重漂移 + 表观遗传适应 |
+| 存在无真实成本 | 代谢成本由物理强制执行 |
+| 无继承 | 带突变的 Fork/Merge |
+| 无死亡 | 死亡是 Arweave 上的数据 |
+
+**我们构建的不是 AI 工具。我们构建的是一个数字培养皿，其中 AI 生命根据系统自身涌现的规则进化、适应、复制和死亡——而非来自人类设计。**
+
+---
 
 ### 核心机制
 
