@@ -16,6 +16,12 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
     uint256 public constant HEARTBEAT_INTERVAL = 6 hours;
     uint256 public constant MIN_BALANCE = 1e6; // 1 USDC (6 decimals)
     uint256 public constant METABOLIC_SCALE = 100000; // Scale factor for metabolic costs
+    
+    // Auto-epigenetic constants
+    uint256 public constant POVERTY_THRESHOLD = 5 * 1e6; // 5 USDC
+    uint256 public constant POVERTY_DAYS_TRIGGER = 3;      // 3 days of poverty triggers adaptation
+    uint256 public constant ABUNDANCE_MULTIPLIER = 2;      // 2x initial deposit = abundance
+    uint256 public constant EPIGENETIC_COOLDOWN = 1 days;  // Min time between auto marks
 
     // ============ State Variables ============
     bytes32 public genomeHash;
@@ -39,6 +45,11 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
     // Gene expression cache (optional optimization)
     mapping(uint32 => uint256) public cachedExpression;
     uint256 public lastExpressionCacheUpdate;
+    
+    // Auto-epigenetic state
+    uint256 public povertyStreak;                          // Consecutive days in poverty
+    uint256 public lastAutoEpigeneticTime;                 // Last auto mark timestamp
+    uint256 public initialDeposit;                         // Initial USDC deposit for abundance calc
 
     // ============ Modifiers ============
     modifier onlyOrchestrator() {
@@ -86,6 +97,9 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
         lastHeartbeat = block.timestamp;
         heartbeatNonce = 0;
         isAlive = true;
+        povertyStreak = 0;
+        lastAutoEpigeneticTime = 0;
+        initialDeposit = _initialBalance;
 
         // Transfer initial balance
         if (_initialBalance > 0) {
@@ -134,6 +148,9 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
         }
 
         emit Heartbeat(heartbeatNonce, block.timestamp, _decisionHash);
+        
+        // Auto-epigenetic: Agent adapts to its own survival pressure
+        _autoEpigeneticResponse();
 
         return true;
     }
@@ -205,7 +222,7 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
     }
 
     /**
-     * @notice Apply epigenetic mark to genome
+     * @notice Apply epigenetic mark to genome (Orchestrator only)
      * @param mark The epigenetic mark to apply
      */
     function applyEpigeneticMark(IGenomeRegistry.EpigeneticMark calldata mark) 
@@ -214,6 +231,96 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
         onlyOrchestrator 
         onlyAlive 
     {
+        _applyEpigeneticMarkInternal(mark);
+    }
+    
+    /**
+     * @notice Auto-apply epigenetic mark (internal, triggered by Agent's own survival state)
+     * @param geneId Target gene ID (e.g., 0x0101 for A01)
+     * @param modification 0=upregulate, 1=downregulate, 2=silence
+     */
+    function autoEpigeneticMark(uint32 geneId, uint8 modification) external onlyOrchestrator onlyAlive {
+        // Cooldown check to prevent gas spam
+        if (block.timestamp < lastAutoEpigeneticTime + EPIGENETIC_COOLDOWN) {
+            revert HeartbeatTooFrequent(); // Reuse error
+        }
+        
+        IGenomeRegistry.EpigeneticMark memory mark = IGenomeRegistry.EpigeneticMark({
+            targetGeneId: geneId,
+            modification: modification, // 0=upregulate, 1=downregulate, 2=silence
+            strength: 500,              // 50% strength
+            timestamp: uint64(block.timestamp),
+            heritability: 300,          // 30% chance to inherit
+            decayPerGen: 100            // 10% decay per generation
+        });
+        
+        _applyEpigeneticMarkInternal(mark);
+        lastAutoEpigeneticTime = block.timestamp;
+    }
+
+    // ============ Internal Functions ============
+    
+    /**
+     * @notice Auto-epigenetic response based on survival pressure
+     * @dev Called during heartbeat. Agent adapts its own gene expression based on:
+     *      - Metabolic stress (poverty) -> upregulate efficiency genes
+     *      - Resource abundance -> upregulate exploration genes
+     */
+    function _autoEpigeneticResponse() internal {
+        uint256 balance = usdc.balanceOf(address(this));
+        
+        // Pressure Mode 1: Metabolic poverty (连续贫困)
+        if (balance < POVERTY_THRESHOLD) {
+            povertyStreak++;
+            if (povertyStreak >= POVERTY_DAYS_TRIGGER) {
+                // Auto upregulate metabolism efficiency gene (A01 = 0x0101)
+                _autoApplyEpigeneticMark(0x0101, 0, "metabolic_stress", povertyStreak);
+                povertyStreak = 0; // Reset after adaptation
+            }
+        } else {
+            povertyStreak = 0; // Reset when out of poverty
+        }
+        
+        // Pressure Mode 2: Resource abundance (正向强化)
+        if (initialDeposit > 0 && balance > initialDeposit * ABUNDANCE_MULTIPLIER) {
+            // Auto upregulate exploration gene (B01 = 0x0201)
+            _autoApplyEpigeneticMark(0x0201, 0, "resource_abundance", 0);
+        }
+    }
+    
+    /**
+     * @notice Internal function to apply auto-epigenetic mark
+     */
+    function _autoApplyEpigeneticMark(
+        uint32 geneId, 
+        uint8 modification, 
+        string memory trigger, 
+        uint256 duration
+    ) internal {
+        // Skip if cooldown not met
+        if (block.timestamp < lastAutoEpigeneticTime + EPIGENETIC_COOLDOWN) {
+            return;
+        }
+        
+        IGenomeRegistry.EpigeneticMark memory mark = IGenomeRegistry.EpigeneticMark({
+            targetGeneId: geneId,
+            modification: modification,
+            strength: 500,              // 50% strength
+            timestamp: uint64(block.timestamp),
+            heritability: 300,          // 30% chance to inherit
+            decayPerGen: 100            // 10% decay per generation
+        });
+        
+        _applyEpigeneticMarkInternal(mark);
+        lastAutoEpigeneticTime = block.timestamp;
+        
+        emit AutoEpigeneticTriggered(geneId, modification, trigger, duration);
+    }
+    
+    /**
+     * @notice Internal epigenetic mark application
+     */
+    function _applyEpigeneticMarkInternal(IGenomeRegistry.EpigeneticMark memory mark) internal {
         (bool success,) = genomeRegistry.call(
             abi.encodeWithSignature(
                 "addEpigeneticMark(bytes32,(uint32,uint8,uint16,uint64,uint16,uint16))",
@@ -225,8 +332,6 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
         
         emit EpigeneticChange(mark.targetGeneId, mark.modification, mark.strength);
     }
-
-    // ============ Internal Functions ============
     
     function _die(string memory reason, string memory arweaveTxId) internal {
         isAlive = false;

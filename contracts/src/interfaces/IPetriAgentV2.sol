@@ -27,6 +27,7 @@ interface IPetriAgentV2 {
     event FundsDeposited(address indexed sender, uint256 amount);
     event EpigeneticChange(uint32 indexed geneId, uint8 modification, uint16 strength);
     event GeneExpressed(uint32 indexed geneId, uint256 expressionValue);
+    event AutoEpigeneticTriggered(uint32 indexed geneId, uint8 markType, string trigger, uint256 duration);
 
     // ============ Structs ============
     struct AgentState {
@@ -66,6 +67,7 @@ interface IPetriAgentV2 {
     function getGeneExpression(uint32 geneId) external view returns (uint256);
     function getMetabolicCost() external view returns (uint256);
     function applyEpigeneticMark(IGenomeRegistry.EpigeneticMark calldata mark) external;
+    function autoEpigeneticMark(uint32 geneId, uint8 modification) external;
     
     // View functions
     function getState() external view returns (AgentState memory);

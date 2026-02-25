@@ -23,7 +23,17 @@
  */
 
 import { logger } from '../utils/logger';
-import { Genome, RuntimeParams, AgentState } from '../types';
+import { Genome, RuntimeParams, AgentState, Gene } from '../types';
+
+/**
+ * 基因使用日志（用于用进废退权重漂移）
+ */
+interface GeneUsageLog {
+  geneId: string;
+  activationCount: number;
+  lastActivated: number;
+  accumulatedWeight: number;
+}
 
 /**
  * Sigmoid 映射函数
@@ -64,30 +74,53 @@ export function sigmoidMap(
 /**
  * 基因表达引擎
  * 将基因型 + 环境状态 = 表型（运行时参数）
+ * 
+ * 新增：用进废退（Neural Plasticity）- 基因使用频率影响权重
  */
 export class GeneExpressionEngine {
+  private usageLog: Map<string, GeneUsageLog> = new Map();
+  private geneExpressionCache: Map<string, number> = new Map();
+  
+  // 权重漂移常量
+  private readonly USE_STRENGTHEN_FACTOR = 1.1;  // 每10次使用增强 10%
+  private readonly DECAY_FACTOR = 0.95;          // 每天衰减 5%
+  private readonly MAX_WEIGHT = 2.0;             // 上限 2.0x
+  private readonly MIN_WEIGHT = 0.5;             // 下限 0.5x
+  private readonly DECAY_START_DAYS = 7;         // 7天后开始衰减
+  private readonly USES_PER_STRENGTHEN = 10;     // 每10次使用增强一次
+
   /**
-   * 表达基因：基因 × 环境 = 表型
+   * 表达基因：基因 × 环境 × 权重漂移 = 表型
    * 
    * 环境调节因子：
    * - povertyFactor: 余额越低，风险参数越保守
    * - crowdingFactor: 已知存活 agent 越多，竞争越激烈
+   * 
+   * 权重漂移（用进废退）：
+   * - 频繁使用的基因权重增强
+   * - 长期未使用的基因权重衰减
    */
-  express(genome: Genome, currentState: AgentState): RuntimeParams {
+  express(geneId: string, genome: Genome, currentState: AgentState): RuntimeParams {
+    // 记录基因使用（用进废退）
+    this.recordUsage(geneId);
+    
     const t = genome.expressedTraits;
     const env = currentState;
+    
+    // 应用权重漂移
+    const weightDrift = this.getWeightDrift(geneId);
     
     // ===== 环境调节因子 =====
     
     // 贫穷因子：余额越低，所有风险参数越保守
     // 范围 0.0（濒死）到 1.0（富裕，余额 ≥ $20）
-    const povertyFactor = Math.min(1.0, (env.balance || 0) / 20.0);
+    const povertyFactor = Math.min(1.0, (env.balance || 0) / 20.0) * weightDrift;
     
     // 拥挤因子：已知存活 agent 越多，竞争越激烈
     // 范围 0.5（极拥挤）到 1.0（空旷，≤10 个 agent）
     const crowdingFactor = Math.max(0.5, 1.0 - ((env.knownAliveAgents || 0) / 50));
     
-    // ===== 基因 × 环境 = 表型 =====
+    // ===== 基因 × 环境 × 权重漂移 = 表型 =====
     
     return {
       // 代谢间隔：压力响应越高，代谢越快（值越小）
@@ -168,8 +201,9 @@ export class GeneExpressionEngine {
     stateA: AgentState, 
     stateB: AgentState
   ): Record<string, { stateA: number; stateB: number; variance: number }> {
-    const paramsA = this.express(genome, stateA);
-    const paramsB = this.express(genome, stateB);
+    // 使用空字符串作为临时 geneId，因为这只是比较两个状态的差异
+    const paramsA = this.express('', genome, stateA);
+    const paramsB = this.express('', genome, stateB);
     
     const result: Record<string, { stateA: number; stateB: number; variance: number }> = {};
     
@@ -186,6 +220,109 @@ export class GeneExpressionEngine {
     }
     
     return result;
+  }
+  
+  // ============ 用进废退（Neural Plasticity）============
+  
+  /**
+   * 记录基因使用
+   * 实现"用进"：频繁使用增强权重
+   */
+  private recordUsage(geneId: string): void {
+    if (!geneId) return; // 跳过空 geneId（如 calculatePhenotypicPlasticity 调用）
+    
+    const now = Date.now();
+    const log = this.usageLog.get(geneId) || {
+      geneId,
+      activationCount: 0,
+      lastActivated: 0,
+      accumulatedWeight: 1.0,
+    };
+    
+    log.activationCount++;
+    log.lastActivated = now;
+    
+    // 用进：每 USES_PER_STRENGTHEN 次使用增强一次权重
+    if (log.activationCount % this.USES_PER_STRENGTHEN === 0) {
+      log.accumulatedWeight = Math.min(this.MAX_WEIGHT, log.accumulatedWeight * this.USE_STRENGTHEN_FACTOR);
+      logger.debug(`Gene ${geneId} strengthened: weight = ${log.accumulatedWeight.toFixed(2)}`);
+    }
+    
+    this.usageLog.set(geneId, log);
+  }
+  
+  /**
+   * 获取权重漂移系数
+   * 实现"废退"：长期未使用衰减权重
+   */
+  private getWeightDrift(geneId: string): number {
+    if (!geneId) return 1.0;
+    
+    const log = this.usageLog.get(geneId);
+    if (!log) return 1.0;
+    
+    const now = Date.now();
+    const daysSinceUse = (now - log.lastActivated) / (1000 * 60 * 60 * 24);
+    
+    // 废退：DECAY_START_DAYS 天后开始衰减
+    if (daysSinceUse > this.DECAY_START_DAYS) {
+      const decayDays = daysSinceUse - this.DECAY_START_DAYS;
+      const decayFactor = Math.pow(this.DECAY_FACTOR, decayDays);
+      log.accumulatedWeight = Math.max(this.MIN_WEIGHT, log.accumulatedWeight * decayFactor);
+      this.usageLog.set(geneId, log);
+    }
+    
+    return log.accumulatedWeight;
+  }
+  
+  /**
+   * 获取使用频率最高的基因（用于正向强化）
+   * @param topN 返回前 N 个
+   */
+  getMostExpressedGenes(topN: number = 3): string[] {
+    const sorted = Array.from(this.usageLog.entries())
+      .sort((a, b) => b[1].activationCount - a[1].activationCount)
+      .slice(0, topN)
+      .map(([geneId]) => geneId);
+    
+    return sorted;
+  }
+  
+  /**
+   * 获取基因使用统计
+   */
+  getUsageStats(): Record<string, GeneUsageLog> {
+    return Object.fromEntries(this.usageLog);
+  }
+  
+  /**
+   * 准备链上同步数据
+   * 返回需要更新到链上的表观遗传标记
+   */
+  prepareChainSync(): Array<{ geneId: string; modification: number; weight: number }> {
+    const marks: Array<{ geneId: string; modification: number; weight: number }> = [];
+    
+    for (const [geneId, log] of this.usageLog.entries()) {
+      if (log.accumulatedWeight > 1.5) {
+        // 权重过高，标记为 upregulate
+        marks.push({ geneId, modification: 0, weight: log.accumulatedWeight });
+      } else if (log.accumulatedWeight < 0.7) {
+        // 权重过低，标记为 downregulate
+        marks.push({ geneId, modification: 1, weight: log.accumulatedWeight });
+      }
+    }
+    
+    return marks;
+  }
+  
+  /**
+   * 同步后重置（避免重复同步）
+   */
+  resetAfterSync(): void {
+    // 可选：同步后重置计数器，但保留权重
+    for (const log of this.usageLog.values()) {
+      log.activationCount = 0;
+    }
   }
 }
 

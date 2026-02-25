@@ -406,6 +406,51 @@ export class MetabolismTracker {
   getCostConfig(): MetabolicCosts {
     return { ...this.costs };
   }
+  
+  // ============ Auto-Epigenetic Support ============
+  
+  /**
+   * 计算代谢压力水平（用于自主表观遗传）
+   * @returns 0.0 - 1.0，越高表示压力越大
+   */
+  getStressLevel(currentBalance: number): number {
+    const dailyCost = this.dailyBill?.totalCost || this.estimateDailyCost();
+    
+    if (dailyCost === 0) return 0;
+    
+    // 基于剩余天数的压力计算
+    const daysRemaining = currentBalance / dailyCost;
+    
+    if (daysRemaining < 1) return 1.0;        // 临界：不到1天
+    if (daysRemaining < 3) return 0.9;        // 高：不到3天
+    if (daysRemaining < 7) return 0.7;        // 中高：不到1周
+    if (daysRemaining < 14) return 0.5;       // 中：不到2周
+    if (daysRemaining < 30) return 0.3;       // 低：不到1月
+    return 0.1;                                // 极低：1月以上
+  }
+  
+  /**
+   * 获取余额趋势（简化实现，实际应该追踪历史）
+   */
+  getBalanceTrend(): 'increasing' | 'stable' | 'decreasing' {
+    // 简化：基于最近结算时间判断
+    // 实际实现应该追踪余额历史
+    const hoursSinceSettlement = (Date.now() - this.lastSettlementTime) / (1000 * 60 * 60);
+    
+    if (hoursSinceSettlement < 1) {
+      return 'stable';
+    }
+    
+    // 默认保守估计
+    return 'stable';
+  }
+  
+  /**
+   * 获取每日成本（用于外部计算）
+   */
+  getDailyCost(): number {
+    return this.dailyBill?.totalCost || this.estimateDailyCost();
+  }
 }
 
 export default MetabolismTracker;
