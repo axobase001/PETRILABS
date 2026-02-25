@@ -7,6 +7,7 @@ import "./interfaces/IForkable.sol";
 import "./interfaces/IMergeable.sol";
 import "./interfaces/IPetriAgentV2.sol";
 import "./interfaces/IGenomeRegistry.sol";
+import "./libraries/GenomeValueAssessor.sol";
 
 /**
  * @title ReplicationManager
@@ -391,7 +392,7 @@ contract ReplicationManager is IForkable, IMergeable, Ownable {
     
     /**
      * @notice 链上基因价值评估算法
-     * @dev 基于链上可验证数据评估特定基因的价值
+     * @dev 完全委托给 GenomeValueAssessor 库，消除重复逻辑
      */
     function assessGeneValue(address target, uint32[] calldata geneIds)
         external
@@ -399,29 +400,34 @@ contract ReplicationManager is IForkable, IMergeable, Ownable {
         override
         returns (uint256 valueScore, uint256 confidence)
     {
-        // 1. 获取目标 Agent 的链上数据
+        // 验证目标 Agent 存在
         bytes32 targetGenome = agentGenomeHash[target];
         if (targetGenome == bytes32(0)) {
             return (0, 0);
         }
         
-        // 2. 获取目标 Agent 的 USDC 余额（收入效率代理）
+        // 获取目标余额
         uint256 targetBalance = usdc.balanceOf(target);
         
-        // 3. 评估基因价值（简化算法）
-        // 实际实现应查询 GenomeRegistry 获取基因表达与收益的相关性
-        uint256 totalScore = 0;
+        // 使用 GenomeValueAssessor 进行专业评估
+        // 每个基因独立评估后汇总
+        uint256 totalValue = 0;
+        uint256 totalConfidence = 0;
+        
         for (uint i = 0; i < geneIds.length; i++) {
-            // 基因价值 = 余额 * 基因表达度 / 总基因数
-            totalScore += targetBalance / 100; // 简化计算
+            // 默认域为 COGNITION (2)，实际应由调用者提供
+            (uint256 geneValue, uint256 geneConfidence) = GenomeValueAssessor.assessGeneValue(
+                geneIds[i],
+                targetBalance,
+                uint8(IGenomeRegistry.GeneDomain.COGNITION)
+            );
+            totalValue += geneValue;
+            totalConfidence += geneConfidence;
         }
         
-        valueScore = totalScore > 10000 ? 10000 : totalScore;
-        confidence = 7000; // 70% 置信度（简化）
-        
-        // 缓存评估结果
-        // genomeValueAssessment[msg.sender][target] = valueScore;
-        // assessmentTimestamp[msg.sender][target] = block.timestamp;
+        // 归一化
+        valueScore = totalValue > 10000 ? 10000 : totalValue;
+        confidence = geneIds.length > 0 ? totalConfidence / geneIds.length : 0;
         
         emit GenomeValueAssessed(msg.sender, target, valueScore, geneIds);
         
