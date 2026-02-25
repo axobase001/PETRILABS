@@ -22,8 +22,8 @@ export enum GeneDomain {
   COMPETITION = 15,
   COMMUNICATION = 16,
   TRUST_MODEL = 17,
-  MATE_SELECTION = 18,
-  PARENTAL_INVESTMENT = 19,
+  MATE_SELECTION = 18,        // 保留：用于评估潜在 Merge 伙伴
+  PARENTAL_INVESTMENT = 19,   // 保留：用于 Fork 时决定投资额
   HUMAN_HIRING = 20,
   HUMAN_COMMUNICATION = 21,
   HUMAN_EVALUATION = 22,
@@ -207,7 +207,10 @@ export interface RuntimeParams {
   
   // 社交参数
   cooperationAutoReject: boolean;      // 是否自动拒绝合作
-  breedingBalanceThreshold: number;    // 繁殖余额阈值（USDC）
+  
+  // 复制参数 (Fork/Merge 自主复制)
+  forkBalanceThreshold: number;        // Fork 最低余额阈值（硬约束）
+  mergeMaxDeposit: number;             // Merge 最高出价（余额的百分比）
   
   // 来源引用
   sourceGenome: Genome;

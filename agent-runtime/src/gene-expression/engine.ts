@@ -166,13 +166,17 @@ export class GeneExpressionEngine {
       // 自动拒绝合作阈值：合作倾向 < 0.2 时自动拒绝
       cooperationAutoReject: t.cooperationTendency < 0.2,
 
-      // 繁殖余额阈值：储蓄倾向调节，受贫穷因子反向影响
-      breedingBalanceThreshold: clamp(
-        sigmoidMap(t.savingsTendency, 12.0, 24.0) / Math.max(0.1, povertyFactor),
-        5.0,    // 最低 $5
-        50.0    // 最高 $50
+      // Fork 余额阈值：储蓄倾向越高，Fork 门槛越高（保守策略）
+      // 硬约束：余额低于此值时 fork() 调用被代码层拦截
+      forkBalanceThreshold: sigmoidMap(
+        t.savingsTendency, 
+        8 * 1.5,   // minForkCost($8) * 1.5 = $12（保守）
+        8 * 4.0    // minForkCost($8) * 4.0 = $32（激进）
       ),
-      // 穷的时候繁殖门槛相对更高（不会在濒死时还想繁殖）
+
+      // Merge 最高出价：风险偏好决定愿意支付的最高金额
+      // 计算方式：balance * sigmoidMap(riskAppetite, 0.05, 0.30)
+      mergeMaxDeposit: (env.balance || 0) * sigmoidMap(t.riskAppetite, 0.05, 0.30),
 
       // 付费认知阈值：储蓄倾向决定何时使用付费 LLM
       paidCognitionThreshold: sigmoidMap(t.savingsTendency, 3.0, 10.0),
