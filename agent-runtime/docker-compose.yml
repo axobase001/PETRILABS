@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  clawbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clawbot-agent
+    restart: unless-stopped
+    
+    environment:
+      - NODE_ENV=production
+      - AGENT_ADDRESS=${AGENT_ADDRESS}
+      - GENOME_HASH=${GENOME_HASH}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - RPC_URL=${RPC_URL:-https://sepolia.base.org}
+      - CHAIN_ID=${CHAIN_ID:-84532}
+      - GENOME_REGISTRY_ADDRESS=${GENOME_REGISTRY_ADDRESS}
+      - PETRI_AGENT_V2_ADDRESS=${PETRI_AGENT_V2_ADDRESS}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-anthropic/claude-3-opus-20240229}
+      - HEARTBEAT_INTERVAL_MS=${HEARTBEAT_INTERVAL_MS:-21600000}
+      - DECISION_INTERVAL_MS=${DECISION_INTERVAL_MS:-3600000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - REDIS_URL=redis://redis:6379
+    
+    volumes:
+      # Mount skills directory for pre-installed skills
+      - ./skills:/app/skills:ro
+      # Mount data directory for persistence
+      - agent-data:/app/data
+      # Mount logs directory
+      - agent-logs:/app/logs
+    
+    depends_on:
+      - redis
+    
+    networks:
+      - clawbot-network
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: clawbot-redis
+    restart: unless-stopped
+    
+    volumes:
+      - redis-data:/data
+    
+    networks:
+      - clawbot-network
+    
+    command: redis-server --appendonly yes
+
+volumes:
+  agent-data:
+  agent-logs:
+  redis-data:
+
+networks:
+  clawbot-network:
+    driver: bridge

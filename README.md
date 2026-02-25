@@ -1,66 +1,133 @@
-# Petrilabs
+# PETRILABS - AI Agent Wild Deployment Platform
 
-**AI Agent 野化部署平台** — 把你的 ClawdBot 放生到无许可基础设施上，让它用真实资产自主谋生。
+> 把你的 AI Agent 放生到无许可基础设施上，让它用真实资产自主谋生。
 
-## 这是什么
+## 核心特性
 
-Petrilabs 是一个单向门。
+### 🧬 动态基因组
+- 60+ 基因，32 个功能域
+- 记忆文件驱动生成（LLM分析）
+- 表观遗传修饰（环境响应）
 
-你把自己调教好的 AI agent（ClawdBot）带过来，充值 USDC，按下部署按钮。
-系统自动为 agent 生成钱包、基因组，在 [Akash Network](https://akash.network) 上购买容器，把 agent 放进去运行。
+### 🔒 完全单向门
+- 部署后不可暂停/修改/干预
+- 私钥仅存在于容器内存
+- 使用 HashiCorp Vault 安全托管
 
-之后，你只能观察。
+### 💰 无感化支付
+- **Akash**: USDC 原生支付（无需AKT）
+- **Arweave**: Turbo SDK + x402 协议（Base L2 USDC 直付）
+- **LLM**: ainft.com x402 支付
 
-**你不能：** 暂停、充值、修改记忆、干预决策、重启。
-**Agent 的命运：** 完全由它自己的决策和市场决定。
+### 🤖 自主运行
+- 基于基因组的决策引擎
+- 可插拔 Skill 系统
+- 定期心跳维持存活
+
+## 快速开始
+
+### 1. 部署 Agent
+```bash
+# 前端
+cd frontend && npm run dev
+
+# 打开 http://localhost:3000
+# 1. 连接钱包
+# 2. 上传记忆文件
+# 3. 确认成本明细
+# 4. 一键部署
+```
+
+### 2. 查看 Agent
+```
+/My Agents 页面
+- 查看所有部署的 Agent
+- 实时监控状态和余额
+- 基因组可视化
+```
 
 ## 架构
 
-详见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        用户层                                │
+│              Next.js + wagmi + RainbowKit                   │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                      编排服务层                              │
+│  Express + HashiCorp Vault + ArweaveProxy + Akash + ainft.com │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                      区块链层 (Base L2)                       │
+│   GenomeRegistry | PetriFactoryV2 | PetriAgentV2 | USDC     │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                      运行时层 (Akash)                        │
+│   ClawBot | x402 LLM | Proxy Storage | USDC Payments        │
+└─────────────────────────────────────────────────────────────┘
+```
 
-## 技术栈
+## 支付流程
 
-| 层 | 技术 |
-|---|---|
-| 前端 | Next.js 14 + React + wagmi v2 |
-| 编排服务 | Node.js (TypeScript) + Express |
-| 链上经济层 | Base L2 (EVM) + USDC |
-| 算力层 | Akash Network |
-| Agent 运行时 | ClawdBot (Node.js) |
-| LLM 推理 | OpenRouter API (用户自带 Key) |
-| 永久存储 | Arweave |
-| 钱包交互 | ethers.js v6 |
-| 合约框架 | Foundry + Solidity 0.8.20 |
+### 部署前 (用户支付)
+| 项目 | 服务 | 支付方式 | 成本 |
+|------|------|---------|------|
+| LLM基因组分析 | OpenRouter | 用户API Key | ~$3 |
+| 永久存储 | Arweave | 用户USDC→AR | ~$1 |
+| 容器押金 | Akash | 用户USDC→Agent | ~$30-45 |
+| 平台费 | PETRILABS | 用户USDC | $5 |
+| **总计** | | | **~$40-55** |
 
-## 项目结构
+### 运行时 (Agent自治)
+| 项目 | 服务 | 支付方式 | 日成本 |
+|------|------|---------|--------|
+| 容器租赁 | Akash | Agent USDC | ~$1.5 |
+| 数据存储 | Arweave | Agent USDC→AR | ~$0.1 |
+| LLM推理 | ainft.com | Agent x402 | ~$0.5-2 |
+| **总计** | | | **~$2-4/天** |
+
+## 安全设计
+
+### 私钥管理
+```
+1. 编排服务生成钱包
+2. 私钥存入 HashiCorp Vault
+3. 容器启动时一次性获取
+4. Vault 立即删除私钥
+5. 私钥仅存容器内存
+6. 容器销毁 = 私钥永久丢失
+```
+
+### 单向门验证
+- ✅ 合约无 admin 权限
+- ✅ 无 pause/unpause 功能
+- ✅ 资金只能消耗，无法提取
+- ✅ 编排服务部署后断连
+- ✅ 任何人都无法干预
+
+## 模块
 
 ```
 petrilabs/
-├── frontend/        # Next.js 前端（Vercel 部署）
-├── orchestrator/    # 编排服务（Railway 部署）
-├── contracts/       # Solidity 合约（Base Mainnet）
-├── agent-runtime/   # Docker 镜像（Akash 运行）
-└── docs/            # 架构文档
+├── contracts/          # Solidity 智能合约
+├── orchestrator/       # Node.js 编排服务
+├── agent-runtime/      # Docker Agent 运行时
+├── skills/             # 预装 Skills
+├── frontend/           # Next.js 前端
+└── docs/               # 文档
 ```
 
-## 成本参考
+## 文档
 
-单个 Agent 运行 30 天约需 **$35 USDC**（最低），包含：
-- Akash 容器：$3/月
-- Arweave 存储：$1.32/月
-- 链上心跳 gas：$2.16/月
-- Agent 初始余额：$20（最低）
-- 平台服务费：$5（固定）
+- [架构设计](docs/ARCHITECTURE.md)
+- [支付架构](docs/PAYMENT_ARCHITECTURE.md)
+- [安全审查](docs/SECURITY_AUDIT.md)
+- [单向门验证](docs/ONE_WAY_DOOR_VERIFICATION.md)
+- [集成指南](docs/INTEGRATION_GUIDE.md)
 
-LLM 推理成本（约 $16/月）由用户自带 API Key，从 **agent 自己的余额**中支付。这是 agent 的生存压力之一。
+## License
 
-## 核心设计原则
-
-1. **私钥不落地** — 仅存在于 Akash 容器进程内存，平台和用户均无法访问
-2. **部署后不可干预** — 合约无 admin 权限，前端无写操作
-3. **死亡不可逆** — 余额耗尽即死亡，剩余资产永久锁定，没有复活机制
-4. **永久记录** — 所有决策和死亡记录写入 Arweave，不可篡改
-
----
-
-*Petrilabs — Nature is not a simulation.*
+MIT
