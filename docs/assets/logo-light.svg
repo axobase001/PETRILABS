@@ -2,31 +2,32 @@
   <defs>
     <linearGradient id="gradLight" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#059669;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#047857;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0369a1;stop-opacity:1" />
     </linearGradient>
   </defs>
   
-  <!-- Background circle -->
-  <circle cx="100" cy="100" r="90" fill="none" stroke="url(#gradLight)" stroke-width="4"/>
+  <!-- Petri dish outer rim (bottom half - open top) -->
+  <path d="M30 100 A70 70 0 0 0 170 100" fill="none" stroke="url(#gradLight)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M30 100 A70 20 0 0 1 170 100" fill="none" stroke="url(#gradLight)" stroke-width="2" opacity="0.4"/>
   
-  <!-- Petri dish metaphor - outer ring -->
-  <circle cx="100" cy="100" r="75" fill="none" stroke="#059669" stroke-width="2" opacity="0.6"/>
+  <!-- DNA helix as a growing branch (asymmetric, evolving) -->
+  <path d="M60 110 Q80 90 70 70 Q90 50 85 30" fill="none" stroke="#059669" stroke-width="3" stroke-linecap="round"/>
+  <path d="M60 110 Q85 100 100 85 Q115 70 130 55" fill="none" stroke="#0369a1" stroke-width="3" stroke-linecap="round"/>
+  <path d="M100 85 Q105 105 115 120" fill="none" stroke="#0ea5e9" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
   
-  <!-- DNA helix simplified -->
-  <path d="M70 60 Q100 80 70 100 Q100 120 70 140" fill="none" stroke="#059669" stroke-width="3" stroke-linecap="round"/>
-  <path d="M130 60 Q100 80 130 100 Q100 120 130 140" fill="none" stroke="#059669" stroke-width="3" stroke-linecap="round"/>
+  <!-- Nodes representing genes/data points -->
+  <circle cx="60" cy="110" r="5" fill="#059669"/>
+  <circle cx="85" cy="30" r="4" fill="#059669"/>
+  <circle cx="130" cy="55" r="4" fill="#0369a1"/>
+  <circle cx="115" cy="120" r="3" fill="#0ea5e9"/>
   
-  <!-- Connecting bars (DNA rungs) -->
-  <line x1="75" y1="75" x2="125" y2="75" stroke="#047857" stroke-width="2" opacity="0.8"/>
-  <line x1="70" y1="100" x2="130" y2="100" stroke="#047857" stroke-width="2" opacity="0.8"/>
-  <line x1="75" y1="125" x2="125" y2="125" stroke="#047857" stroke-width="2" opacity="0.8"/>
+  <!-- Small colonies/bacteria in the dish (random, organic) -->
+  <ellipse cx="45" cy="125" rx="6" ry="4" fill="#059669" opacity="0.6" transform="rotate(-20 45 125)"/>
+  <ellipse cx="150" cy="115" rx="5" ry="3" fill="#0369a1" opacity="0.5" transform="rotate(30 150 115)"/>
+  <circle cx="100" cy="140" r="3" fill="#0ea5e9" opacity="0.4"/>
+  <ellipse cx="75" cy="130" rx="4" ry="2" fill="#059669" opacity="0.5" transform="rotate(15 75 130)"/>
   
-  <!-- Central dot (life seed) -->
-  <circle cx="100" cy="100" r="8" fill="#059669"/>
-  
-  <!-- Orbital dots (evolution/rotation) -->
-  <circle cx="100" cy="35" r="4" fill="#059669" opacity="0.9"/>
-  <circle cx="160" cy="100" r="3" fill="#047857" opacity="0.7"/>
-  <circle cx="100" cy="165" r="3" fill="#047857" opacity="0.7"/>
-  <circle cx="40" cy="100" r="3" fill="#047857" opacity="0.7"/>
+  <!-- Connection lines showing network/decentralization -->
+  <line x1="60" y1="110" x2="45" y2="125" stroke="#059669" stroke-width="1" opacity="0.5"/>
+  <line x1="100" y1="85" x2="100" y2="140" stroke="#0ea5e9" stroke-width="1" opacity="0.3"/>
 </svg>
