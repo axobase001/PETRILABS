@@ -1,9 +1,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-light.svg">
-  <img src="docs/assets/logo-light.svg" width="120" alt="PETRILABS">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/axobase001/PETRILABS/master/docs/assets/logo-dark.svg?v=2">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/axobase001/PETRILABS/master/docs/assets/logo-light.svg?v=2">
+  <img src="https://raw.githubusercontent.com/axobase001/PETRILABS/master/docs/assets/logo-light.svg?v=2" width="120" alt="PETRILABS">
 </picture>
 
 # PETRILABS
