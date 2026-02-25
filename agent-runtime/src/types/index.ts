@@ -158,6 +158,130 @@ export interface HeartbeatData {
   };
 }
 
+// ═══════════════════════════════════════════════════════════
+// Gene Expression Types (双模态基因表达系统)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * 基因组表达的性状
+ */
+export interface ExpressedTraits {
+  riskAppetite: number;           // 风险偏好 0-1
+  analyticalAbility: number;      // 分析能力 0-1
+  creativeAbility: number;        // 创造力 0-1
+  cooperationTendency: number;    // 合作倾向 0-1
+  savingsTendency: number;        // 储蓄倾向 0-1
+  stressResponse: number;         // 压力响应 0-1
+  inferenceQuality: number;       // 推理质量 0-1
+  adaptationSpeed: number;        // 适应速度 0-1
+  learningRate: number;           // 学习率 0-1
+  onChainAffinity: number;        // 链上亲和度 0-1
+  humanDependence: number;        // 人类依赖度 0-1
+}
+
+/**
+ * 基因组
+ */
+export interface Genome {
+  hash: string;
+  expressedTraits: ExpressedTraits;
+  rawGenes?: Gene[];
+}
+
+/**
+ * 运行时参数（表型）
+ * 硬表达参数 - 直接修改 agent 行为边界
+ */
+export interface RuntimeParams {
+  // 代谢参数
+  metabolicInterval: number;           // 代谢心跳间隔（毫秒）
+  
+  // 认知参数
+  cognitionBudgetRatio: number;        // 认知预算占余额比例
+  paidCognitionThreshold: number;      // 付费认知阈值（USDC）
+  cognitionCooldown: number;           // 认知冷却时间（毫秒）
+  
+  // 交易参数
+  maxSingleTransactionRatio: number;   // 单笔交易占余额比例上限
+  panicThreshold: number;              // 恐慌阈值（USDC）
+  
+  // 社交参数
+  cooperationAutoReject: boolean;      // 是否自动拒绝合作
+  breedingBalanceThreshold: number;    // 繁殖余额阈值（USDC）
+  
+  // 来源引用
+  sourceGenome: Genome;
+}
+
+/**
+ * Agent 状态（环境输入）
+ */
+export interface AgentState {
+  balance: number;                     // 当前余额（USDC）
+  knownAliveAgents?: number;           // 已知存活 agent 数量（拥挤因子）
+  lastAction?: string;                 // 最后一次行动
+  lastCognitionTier?: 'free' | 'paid'; // 最后一次推理层级
+  deathCause?: 'STARVATION' | 'CONTAINER_EXPIRED' | 'UNKNOWN';
+  [key: string]: any;
+}
+
+/**
+ * 基因覆盖日志
+ */
+export interface GeneOverrideLog {
+  timestamp: number;
+  blockHeight: number;
+  trait: string;
+  geneValue: number;
+  originalDecision: {
+    action: string;
+    amount?: number;
+  };
+  constrainedDecision: {
+    action: string;
+    amount?: number;
+    constraintType: 'CAPPED' | 'BLOCKED' | 'REDIRECTED';
+  };
+  context: {
+    balance: number;
+    stressLevel: number;
+    cognitionTier: 'free' | 'paid';
+    metabolicCount: number;
+  };
+}
+
+/**
+ * 压缩的覆盖日志
+ */
+export interface CompressedOverrideLog {
+  encoding: 'uint8_quantized';
+  count: number;
+  data: Buffer;
+}
+
+/**
+ * 死亡记忆（Tombstone）
+ */
+export interface DeathMemory {
+  overrideHistory: CompressedOverrideLog;
+  summary: {
+    totalOverrides: number;
+    dominantTrait: string;
+    dominantTraitCount: number;
+    traitBreakdown: Record<string, number>;
+    avgDissonance: number;
+    peakDissonance: number;
+    peakDissonanceTimestamp: number;
+  };
+  deathContext: {
+    balance: number;
+    age: number;
+    lastAction: string;
+    lastCognitionTier: 'free' | 'paid';
+    cause: 'STARVATION' | 'CONTAINER_EXPIRED' | 'UNKNOWN';
+  };
+}
+
 // Config Types
 export interface AgentConfig {
   agentAddress: string;
@@ -168,6 +292,7 @@ export interface AgentConfig {
   contracts: {
     genomeRegistry: string;
     petriAgent: string;
+    geneLog?: string;  // 基因日志合约地址（新增）
   };
   llm: {
     apiKey: string;
@@ -183,5 +308,14 @@ export interface AgentConfig {
     jwt: string;
     baseUrl?: string;
     cachePath?: string;
+  };
+  // 基因日志配置（新增）
+  geneLog?: {
+    enabled: boolean;
+    dbPath?: string;
+    arweave?: {
+      upload(data: { tags: Record<string, string>; data: string }): Promise<string>;
+    };
+    contract?: any;  // ethers.Contract
   };
 }

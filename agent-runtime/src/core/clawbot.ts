@@ -14,6 +14,7 @@ import { NkmcGateway } from '../gateways/nkmc';
 import { CapabilityRouter } from '../routers/capability';
 import MetabolismTracker from '../metabolism/tracker';
 import { CognitionRouter } from '../cognition';
+import { GeneExpressionEngine, GeneLogger } from '../gene-expression';
 import { 
   AgentConfig, 
   AgentState, 
@@ -42,6 +43,11 @@ export class ClawBot {
   
   // 双模态认知路由器（新增）
   private cognitionRouter?: CognitionRouter;
+  
+  // 基因表达引擎（新增）
+  private geneExpressionEngine: GeneExpressionEngine;
+  private geneLogger?: GeneLogger;
+  private runtimeParams?: import('../types').RuntimeParams;
   
   private isRunning = false;
   private decisionInterval?: NodeJS.Timeout;
@@ -101,6 +107,21 @@ export class ClawBot {
     });
     
     logger.info('Dual-mode cognition router initialized (Pollinations + x402)');
+    
+    // Initialize gene expression engine（新增：基因表达）
+    this.geneExpressionEngine = new GeneExpressionEngine();
+    
+    // Initialize gene logger if configured（新增：基因日志）
+    if (config.geneLog?.enabled) {
+      this.geneLogger = new GeneLogger({
+        agentId: config.agentAddress,
+        dbPath: config.geneLog.dbPath,
+        arweave: config.geneLog.arweave,
+        geneLogContract: config.geneLog.contract,
+      });
+      
+      logger.info('GeneLogger initialized');
+    }
 
     // Genome registry contract
     const GENOME_REGISTRY_ABI = [
