@@ -23,7 +23,7 @@ interface IPetriAgentV2 {
     event AgentBorn(address indexed agent, bytes32 indexed genomeHash, uint256 birthTime);
     event Heartbeat(uint256 indexed nonce, uint256 timestamp, bytes32 decisionHash);
     event DecisionExecuted(uint256 indexed decisionId, bytes32 decisionHash, bool success);
-    event AgentDied(uint256 indexed deathTime, uint256 remainingBalance, bytes32 finalStateHash);
+    event AgentDied(address indexed agentId, uint256 indexed blockNumber, string reason, string arweaveTxId, uint256 remainingBalance, bytes32 finalStateHash);
     event FundsDeposited(address indexed sender, uint256 amount);
     event EpigeneticChange(uint32 indexed geneId, uint8 modification, uint16 strength);
     event GeneExpressed(uint32 indexed geneId, uint256 expressionValue);
@@ -60,7 +60,7 @@ interface IPetriAgentV2 {
     function heartbeat(bytes32 _decisionHash, string calldata _arweaveTxId) external returns (bool);
     function executeDecision(bytes calldata _decisionData) external returns (bool);
     function deposit(uint256 _amount) external;
-    function die() external;
+    function die(string calldata arweaveTxId) external;
     
     // Genome interaction
     function getGeneExpression(uint32 geneId) external view returns (uint256);

@@ -1,14 +1,22 @@
 /**
- * Deployment Service with Cost Calculation
+ * Deployment Service V3
+ * 使用原生 Arweave + 托管支付模式
+ * 
+ * 支付流程：
+ * 1. 用户 USDC → 编排服务
+ * 2. 编排服务兑换为 AR
+ * 3. AR 存入托管钱包
+ * 4. Agent 调用编排 API 存储，编排代付 AR
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { Queue, Job } from 'bullmq';
-import { config } from '../config';
+import { ethers } from 'ethers';
 import { logger } from '../utils/logger';
 import LLMService from './llm';
 import BlockchainService from './blockchain';
-import ArweaveService from './arweave';
+import VaultService from './vault';
+import ArweaveProxyService from './arweave-proxy';
+import AkashService from './akash';
 import PaymentService from './payment';
 import {
   DeploymentRequest,
@@ -18,149 +26,147 @@ import {
   MemoryAnalysis,
 } from '../types';
 
-export class DeploymentService {
-  private queue: Queue;
+export class DeploymentServiceV3 {
   private llm: LLMService;
   private blockchain: BlockchainService;
-  private arweave: ArweaveService;
+  private vault: VaultService;
+  private arweaveProxy: ArweaveProxyService;
+  private akash: AkashService;
   private payment: PaymentService;
 
-  constructor() {
-    this.queue = new Queue('agent-deployment', {
-      connection: { url: config.redis.url },
-    });
-    
+  constructor(config: {
+    vault: VaultService;
+    arweaveProxy: ArweaveProxyService;
+    akash: AkashService;
+  }) {
     this.llm = new LLMService();
     this.blockchain = new BlockchainService();
-    this.arweave = new ArweaveService();
+    this.vault = config.vault;
+    this.arweaveProxy = config.arweaveProxy;
+    this.akash = config.akash;
     this.payment = new PaymentService();
   }
 
   /**
-   * Calculate deployment costs
+   * 计算部署成本（包含 AR 存储费用）
    */
-  calculateCosts(
+  async calculateCosts(
     memoryFileSize: number,
     memoryContentLength: number,
     runwayDays: number = 30
   ) {
-    return this.payment.calculateDeploymentCosts(
+    const baseCosts = this.payment.calculateDeploymentCosts(
       memoryFileSize,
       memoryContentLength,
       runwayDays
     );
+
+    // 计算 AR 存储费用
+    // 基因组 ~50KB，记忆文件可变，心跳/决策每天 ~10KB
+    const estimatedDailyBytes = 10 * 1024; // 10KB per day
+    const totalBytes = 50 * 1024 + memoryFileSize + (estimatedDailyBytes * runwayDays);
+    
+    const arweaveCostUSDC = await this.arweaveProxy.estimateCostUSDC(totalBytes);
+    const arweaveCostAR = await this.estimateARCost(totalBytes);
+
+    return {
+      ...baseCosts,
+      arweave: {
+        usdc: arweaveCostUSDC,
+        ar: arweaveCostAR,
+        bytes: totalBytes,
+      },
+      totalUpfront: parseFloat(baseCosts.totalUpfront.toString()) + parseFloat(arweaveCostUSDC) / 1e6,
+    };
+  }
+
+  private async estimateARCost(bytes: number): Promise<string> {
+    // 简化估算：~0.01 AR per 100KB
+    const ar = (bytes / 100 / 1024).toFixed(4);
+    return ar;
   }
 
   /**
-   * Start deployment process
+   * 部署 Agent
    */
-  async deploy(request: DeploymentRequest): Promise<DeploymentResponse & { costs?: any }> {
+  async deploy(request: DeploymentRequest & { 
+    arweaveDepositUSDC: string  // 额外的 AR 存储预付费
+  }): Promise<DeploymentResponse & { 
+    costs: any;
+    oneTimeKeyUrl?: string;
+  }> {
     const jobId = uuidv4();
     
-    // Calculate costs
+    // 计算成本
     const memoryContent = request.memoryFile 
       ? request.memoryFile.toString().length 
       : 0;
     const memorySize = request.memoryFile?.length || 0;
     
-    const costs = this.calculateCosts(memorySize, memoryContent, 30);
+    const costs = await this.calculateCosts(memorySize, memoryContent, 30);
     
-    logger.info('Starting deployment with cost estimate', {
+    logger.info('Starting deployment V3 (Arweave proxy)', {
       jobId,
-      hasMemory: !!request.memoryFile,
       creator: request.creatorAddress,
       totalCost: costs.totalUpfront,
+      arweaveDeposit: request.arweaveDepositUSDC,
     });
 
-    // Create job
-    await this.queue.add(
-      'deploy-agent',
-      {
-        jobId,
-        costs,
-        ...request,
-      },
-      {
-        jobId,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-      }
-    );
-
-    return {
-      jobId,
-      status: 'queued',
-      progress: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      costs: {
-        breakdown: this.payment.getCostBreakdown(costs),
-        ...costs,
-      },
-    };
-  }
-
-  /**
-   * Process deployment (called by worker)
-   */
-  async processDeployment(job: Job): Promise<DeploymentResponse> {
-    const { 
-      jobId, 
-      costs,
-      memoryFile, 
-      memoryHash, 
-      memoryURI, 
-      initialDeposit, 
-      creatorAddress, 
-      preferredTraits 
-    } = job.data;
-    
-    logger.info('Processing deployment job', { jobId, costs });
-    
-    let genome: GeneratedGenome | null = null;
-    let memoryArweaveId: string | null = memoryURI || null;
-    let genomeHash: string | null = null;
-    let agentAddress: string | null = null;
-    let analysis: MemoryAnalysis | null = null;
-
     try {
-      // Step 1: Upload memory to Arweave if provided
-      await job.updateProgress({ step: 'uploading_memory', progress: 5 });
-      
-      if (memoryFile && !memoryURI) {
-        const contentHash = this.computeHash(Buffer.from(memoryFile));
-        const upload = await this.arweave.uploadMemory(Buffer.from(memoryFile), {
-          creator: creatorAddress,
-          timestamp: Date.now(),
-          contentHash,
+      // Step 1: 生成 Agent 钱包
+      const agentWallet = ethers.Wallet.createRandom();
+      const agentAddress = agentWallet.address;
+      const privateKey = agentWallet.privateKey;
+
+      logger.info('Agent wallet generated', { agentAddress });
+
+      // Step 2: 存储私钥到 Vault
+      const { oneTimeToken, retrievalUrl } = await this.vault.storeAgentKey(
+        agentAddress,
+        privateKey
+      );
+
+      // Step 3: 为 Agent 充值 AR 存储额度
+      await this.arweaveProxy.depositUSDC(
+        agentAddress,
+        request.arweaveDepositUSDC
+      );
+
+      // Step 4: 上传记忆文件到 Arweave（使用代理）
+      let memoryArweaveId: string | null = null;
+      if (request.memoryFile) {
+        const memoryUpload = await this.arweaveProxy.store({
+          agentAddress,
+          data: request.memoryFile,
+          tags: [
+            { name: 'App-Name', value: 'PETRILABS' },
+            { name: 'Type', value: 'Memory' },
+            { name: 'Creator', value: request.creatorAddress },
+          ],
         });
-        memoryArweaveId = upload.url;
+        memoryArweaveId = memoryUpload.id;
       }
 
-      // Step 2: Analyze memory or use random
-      await job.updateProgress({ step: 'analyzing', progress: 15 });
-      
-      if (memoryFile) {
-        const content = Buffer.from(memoryFile).toString('utf-8');
+      // Step 5: 分析记忆并生成基因组
+      let analysis: MemoryAnalysis | null = null;
+      let genome: GeneratedGenome;
+
+      if (request.memoryFile) {
+        const content = request.memoryFile.toString('utf-8');
         analysis = await this.llm.analyzeMemory(content);
         
-        // Check match score
         if (analysis.matchScore < 6000) {
-          logger.warn('Memory match score too low, falling back to random', {
-            matchScore: analysis.matchScore,
-          });
           analysis = null;
         }
       }
 
-      // Step 3: Generate genome
-      await job.updateProgress({ step: 'generating_genome', progress: 40 });
-      
       const input: GenomeInput = {
-        memoryDataHash: memoryHash || this.computeHash(Buffer.from(memoryFile || '')),
-        memoryDataURI: memoryArweaveId || '',
+        memoryDataHash: memoryIrysId 
+          ? ethers.keccak256(request.memoryFile!) 
+          : ethers.keccak256(ethers.toUtf8Bytes('random')),
+        memoryDataURI: memoryArweaveId ? `https://arweave.net/${memoryArweaveId}` : '',
         useRandom: !analysis,
-        preferredGenomeHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        preferredGenomeHash: ethers.ZeroHash,
       };
 
       if (analysis) {
@@ -169,45 +175,52 @@ export class DeploymentService {
         genome = await this.llm.generateRandomGenome(input);
       }
 
-      // Step 4: Upload genome to Arweave
-      await job.updateProgress({ step: 'storing_genome', progress: 60 });
-      
-      const genomeUpload = await this.arweave.uploadGenome(genome, {
-        creator: creatorAddress,
-        timestamp: Date.now(),
-        genomeHash: 'pending', // Will update after registration
+      // Step 6: 上传基因组到 Arweave（使用代理）
+      const genomeUpload = await this.arweaveProxy.storeJSON(
+        agentAddress,
+        genome,
+        [
+          { name: 'App-Name', value: 'PETRILABS' },
+          { name: 'Type', value: 'Genome' },
+          { name: 'Creator', value: request.creatorAddress },
+        ]
+      );
+
+      // Step 7: 生成 Akash SDL
+      const akashDeposit = this.akash.calculateDeposit(30, 1.5);
+      const sdl = this.akash.generateAgentSDL({
+        agentAddress,
+        genomeHash: 'pending',
+        privateKeyRef: retrievalUrl,
+        image: 'petrilabs/clawbot:latest',
+        usdcDeposit: akashDeposit,
       });
 
-      // Step 5: Submit genome to blockchain
-      await job.updateProgress({ step: 'submitting_genome', progress: 75 });
-      
-      genomeHash = await this.blockchain.submitGenome(
+      // Step 8: 部署到 Akash
+      const akashDeployment = await this.akash.deployWithSDL(sdl, agentWallet);
+
+      // Step 9: 注册基因组上链
+      const genomeHash = await this.blockchain.submitGenome(
         genome.input,
         genome.genes,
         genome.chromosomes,
         genome.regulatoryEdges
       );
 
-      // Step 6: Create agent on blockchain
-      await job.updateProgress({ step: 'creating_agent', progress: 90 });
-      
-      if (analysis) {
-        agentAddress = await this.blockchain.createAgentFromMemory(
-          input.memoryDataHash,
-          memoryArweaveId || '',
-          initialDeposit
-        );
-      } else {
-        agentAddress = await this.blockchain.createAgentRandom(initialDeposit);
-      }
+      // Step 10: 创建 Agent 合约
+      const tx = await this.blockchain.createAgentFromMemory(
+        input.memoryDataHash,
+        akashDeployment.uri,
+        request.initialDeposit
+      );
 
-      await job.updateProgress({ step: 'completed', progress: 100 });
-
-      logger.info('Deployment completed', {
+      logger.info('Deployment V3 completed', {
         jobId,
         agentAddress,
         genomeHash,
-        totalCost: costs.totalUpfront,
+        akashUri: akashDeployment.uri,
+        memoryArweaveId,
+        genomeArweaveId: genomeUpload.id,
       });
 
       return {
@@ -216,57 +229,47 @@ export class DeploymentService {
         progress: 100,
         agentAddress,
         genomeHash,
-        createdAt: job.data.createdAt,
+        costs: {
+          breakdown: [
+            ...this.payment.getCostBreakdown(costs as any),
+            {
+              label: 'Arweave Storage (AR via Proxy)',
+              amount: parseFloat(costs.arweave.usdc) / 1e6,
+              description: `${costs.arweave.ar} AR for ${Math.round(costs.arweave.bytes / 1024)}KB storage`,
+              isRequired: true,
+            },
+          ],
+          ...costs,
+        },
+        oneTimeKeyUrl: retrievalUrl,
+        createdAt: Date.now(),
         updatedAt: Date.now(),
       };
 
     } catch (error) {
-      logger.error('Deployment failed', { jobId, error });
+      logger.error('Deployment V3 failed', { jobId, error });
       
       return {
         jobId,
         status: 'failed',
         progress: 0,
         error: error instanceof Error ? error.message : 'Unknown error',
-        createdAt: job.data.createdAt,
+        costs: {
+          breakdown: this.payment.getCostBreakdown(costs as any),
+          ...costs,
+        },
+        createdAt: Date.now(),
         updatedAt: Date.now(),
       };
     }
   }
 
   /**
-   * Get job status
+   * 获取存储账户状态
    */
-  async getJobStatus(jobId: string): Promise<DeploymentResponse | null> {
-    const job = await this.queue.getJob(jobId);
-    
-    if (!job) {
-      return null;
-    }
-
-    const state = await job.getState();
-    const progress = job.progress || 0;
-
-    return {
-      jobId,
-      status: state as any,
-      progress: typeof progress === 'number' ? progress : 0,
-      agentAddress: job.returnvalue?.agentAddress,
-      genomeHash: job.returnvalue?.genomeHash,
-      error: job.failedReason,
-      createdAt: job.timestamp,
-      updatedAt: job.processedOn || job.timestamp,
-    };
-  }
-
-  private computeHash(data: Buffer): string {
-    const { ethers } = require('ethers');
-    return ethers.keccak256(data);
-  }
-
-  async close(): Promise<void> {
-    await this.queue.close();
+  async getStorageAccount(agentAddress: string) {
+    return this.arweaveProxy.getAccount(agentAddress);
   }
 }
 
-export default DeploymentService;
+export default DeploymentServiceV3;

@@ -238,54 +238,13 @@ contract GenomeRegistry is IGenomeRegistry, Ownable {
 
     /**
      * @notice Create evolved child genome from parents
-     * @dev Implements genetic crossover, mutation, duplication, deletion
+     * @dev DISABLED in V1.5 - Genetic evolution postponed for metabolic model validation
      */
     function evolveGenome(
         bytes32 parentHash,
         bytes32 partnerHash
     ) external onlyAuthorized genomeMustExist(parentHash) returns (bytes32 childHash) {
-        Genome storage parent = genomes[parentHash];
-        
-        // Start building child genome
-        uint32 childGeneCount = parent.totalGenes;
-        
-        // Apply evolutionary operations
-        // 1. Gene duplication (3% per gene)
-        uint256 duplicationCount = 0;
-        for (uint i = 0; i < 10; i++) { // Simplified: check first 10 genes
-            if (_randomChance(30)) { // 3% chance (scaled by 1000)
-                childGeneCount++;
-                duplicationCount++;
-            }
-        }
-        
-        // 2. Gene deletion (2% per non-essential gene)
-        uint256 deletionCount = 0;
-        // Simplified implementation
-        
-        // Generate child genome hash
-        childHash = keccak256(abi.encodePacked(
-            parentHash,
-            partnerHash,
-            block.timestamp,
-            childGeneCount
-        ));
-        
-        // Store child genome (simplified - in production would copy and mutate genes)
-        Genome storage child = genomes[childHash];
-        child.genomeHash = childHash;
-        child.totalGenes = childGeneCount;
-        child.generation = parent.generation + 1;
-        child.birthTimestamp = uint64(block.timestamp);
-        child.lineageId = parent.lineageId;
-        child.parentGenomeHash = parentHash;
-        child.isRandom = false;
-        
-        genomeExists[childHash] = true;
-        
-        emit GenomeEvolved(parentHash, childHash, child.generation, duplicationCount + deletionCount);
-        
-        return childHash;
+        revert NotImplemented("Genetic evolution disabled in V1.5. Focus: metabolic model validation. ETA: V3");
     }
 
     /**

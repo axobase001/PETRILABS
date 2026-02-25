@@ -111,6 +111,17 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
             revert HeartbeatTooFrequent();
         }
 
+        // Calculate metabolic cost BEFORE updating lastHeartbeat
+        uint256 metabolicCost = getMetabolicCost();
+        uint256 daysSinceLastHeartbeat = (block.timestamp - lastHeartbeat) / 1 days;
+        uint256 costSinceLastHeartbeat = metabolicCost * daysSinceLastHeartbeat / METABOLIC_SCALE;
+        
+        // Check if agent should die (metabolic cost depletes balance)
+        if (usdc.balanceOf(address(this)) < MIN_BALANCE + costSinceLastHeartbeat) {
+            _die("metabolic_exhaustion", "");
+            return false;
+        }
+
         heartbeatNonce++;
         lastHeartbeat = block.timestamp;
         lastDecisionHash = _decisionHash;
@@ -123,15 +134,6 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
         }
 
         emit Heartbeat(heartbeatNonce, block.timestamp, _decisionHash);
-
-        // Check if agent should die (metabolic cost depletes balance)
-        uint256 metabolicCost = getMetabolicCost();
-        uint256 daysSinceLastHeartbeat = (block.timestamp - lastHeartbeat) / 1 days;
-        uint256 costSinceLastHeartbeat = metabolicCost * daysSinceLastHeartbeat / METABOLIC_SCALE;
-        
-        if (usdc.balanceOf(address(this)) < MIN_BALANCE + costSinceLastHeartbeat) {
-            _die();
-        }
 
         return true;
     }
@@ -160,9 +162,8 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
     /**
      * @notice Deposit USDC into the agent
      */
-    function deposit(uint256 _amount) external override {
+    function deposit(uint256 _amount) external override onlyAlive {
         if (_amount == 0) revert InvalidAmount();
-        if (heartbeatNonce > 0) revert InvalidGenome(); // Use different error
         
         bool success = usdc.transferFrom(msg.sender, address(this), _amount);
         if (!success) revert TransferFailed();
@@ -173,8 +174,8 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
     /**
      * @notice Force the agent to die
      */
-    function die() external override onlyOrchestrator onlyAlive {
-        _die();
+    function die(string calldata arweaveTxId) external override onlyOrchestrator onlyAlive {
+        _die("forced", arweaveTxId);
     }
 
     // ============ Genome Interaction ============
@@ -227,7 +228,7 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
 
     // ============ Internal Functions ============
     
-    function _die() internal {
+    function _die(string memory reason, string memory arweaveTxId) internal {
         isAlive = false;
         uint256 remainingBalance = usdc.balanceOf(address(this));
         bytes32 finalStateHash = keccak256(abi.encodePacked(
@@ -236,7 +237,7 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable {
             lastDecisionHash
         ));
 
-        emit AgentDied(block.timestamp, remainingBalance, finalStateHash);
+        emit AgentDied(address(this), block.timestamp, reason, arweaveTxId, remainingBalance, finalStateHash);
     }
 
     // ============ View Functions ============

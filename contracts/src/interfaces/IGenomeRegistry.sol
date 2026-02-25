@@ -152,6 +152,9 @@ interface IGenomeRegistry {
         uint256 mutationCount
     );
 
+    // ============ Errors ============
+    error NotImplemented(string feature);
+
     // ============ Functions ============
     function registerGenome(
         GenomeInput calldata input,
