@@ -18,11 +18,11 @@ contract Deploy is Script {
 
         // Deploy agent implementation
         PetriAgent agentImplementation = new PetriAgent();
-        console.log("PetriAgent Implementation deployed at:", address(agentImplementation));
+        
 
         // Deploy factory
         PetriFactory factory = new PetriFactory(usdc, address(agentImplementation));
-        console.log("PetriFactory deployed at:", address(factory));
+        
 
         vm.stopBroadcast();
     }
@@ -40,15 +40,15 @@ contract DeployTestnet is Script {
 
         // Deploy mock USDC
         MockUSDC usdc = new MockUSDC();
-        console.log("MockUSDC deployed at:", address(usdc));
+        
 
         // Deploy agent implementation
         PetriAgent agentImplementation = new PetriAgent();
-        console.log("PetriAgent Implementation deployed at:", address(agentImplementation));
+        
 
         // Deploy factory
         PetriFactory factory = new PetriFactory(address(usdc), address(agentImplementation));
-        console.log("PetriFactory deployed at:", address(factory));
+        
 
         vm.stopBroadcast();
     }
