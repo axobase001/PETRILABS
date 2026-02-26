@@ -14,12 +14,20 @@ export { PollinationsProvider } from './providers/pollinations';
 export { X402LLMProvider, BudgetExceededError } from './providers/x402-llm';
 export { CognitionBudgetEngine } from './budget-engine';
 
+// 导出认知账本（新增：死亡闭环）
+export { CognitionLedger } from './ledger';
+
 // 类型导出
 export type { 
   ReasoningRequest, 
   ReasoningResult,
   CognitionRouterConfig 
 } from './router';
+
+export type {
+  CognitionRecord,
+  CognitionSummary,
+} from './ledger';
 
 export type { 
   ReasoningRequest as PollinationsRequest,

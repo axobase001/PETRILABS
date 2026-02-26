@@ -24,6 +24,7 @@ export interface CognitionRouterConfig {
     triggerStressResponse(type: string, context: unknown): Promise<void>;
   };
   x402Client?: unknown;
+  ledger?: import('./ledger').CognitionLedger; // 新增：认知账本
 }
 
 export interface ReasoningRequest {
@@ -60,11 +61,13 @@ export class CognitionRouter {
   private metabolism: MetabolismTracker;
   private genome: CognitionRouterConfig['genome'];
   private wallet: ethers.Wallet;
+  private ledger?: import('./ledger').CognitionLedger; // 新增：认知账本
 
   constructor(config: CognitionRouterConfig) {
     this.wallet = config.wallet;
     this.metabolism = config.metabolism;
     this.genome = config.genome;
+    this.ledger = config.ledger;
     
     // 初始化免费层
     this.freeProvider = new PollinationsProvider();
@@ -288,12 +291,37 @@ export class CognitionRouter {
     // 记录 LLM 调用（无论免费付费都记录）
     this.metabolism.recordLlmCall();
     
+    // 记录到认知账本（新增：死亡闭环）
+    this.ledger?.record({
+      timestamp: Date.now(),
+      geneId: gene.id,
+      provider: result.provider,
+      model: result.model,
+      cost: result.cost,
+      tier: result.provider === 'x402-llm' ? 'paid' : 'free',
+      latency: result.latency,
+      tokens: {
+        prompt: result.usage.promptTokens,
+        completion: result.usage.completionTokens,
+        total: result.usage.totalTokens,
+      },
+      success: result.success,
+      error: result.error,
+    });
+    
     logger.info('Cognition expense recorded', {
       geneId: gene.id,
       provider: result.provider,
       cost: result.cost,
       model: result.model,
     });
+  }
+  
+  /**
+   * 获取认知摘要（新增：死亡闭环）
+   */
+  getSummary(): import('./ledger').CognitionSummary | undefined {
+    return this.ledger?.getSummary();
   }
 
   /**

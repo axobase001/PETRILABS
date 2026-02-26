@@ -24,7 +24,11 @@ import {
   GeneDomain,
   MemoryEvent,
   Gene,
+  AgentLifecycleState,
 } from '../types';
+import LifecycleTracker from '../lifecycle/tracker';
+import CognitionLedger from '../cognition/ledger';
+import DeathManager from '../lifecycle/death-manager';
 
 export class ClawBot {
   private config: AgentConfig;
@@ -49,10 +53,17 @@ export class ClawBot {
   private geneLogger?: GeneLogger;
   private runtimeParams?: import('../types').RuntimeParams;
   
+  // 死亡闭环组件（新增）
+  private lifecycleTracker: LifecycleTracker;
+  private cognitionLedger: CognitionLedger;
+  private deathManager: DeathManager;
+  
   private isRunning = false;
   private decisionInterval?: NodeJS.Timeout;
   private lastDecisionTime = 0;
   private loadedGenes: Gene[] = [];
+  private metabolicCount: number = 0;
+  private lastCognitionTier: 'free' | 'paid' = 'free';
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -68,6 +79,28 @@ export class ClawBot {
     
     // Initialize metabolism tracker（复用现有 C-经济染色体系统）
     this.metabolismTracker = new MetabolismTracker();
+    
+    // Initialize death loop components（新增：死亡闭环）
+    this.lifecycleTracker = new LifecycleTracker({
+      agentId: config.agentAddress,
+      dbPath: '/app/data/lifecycle.db',
+      initialBalance: 0, // 启动后从链上获取
+      birthTimestamp: Date.now(),
+    });
+    
+    this.cognitionLedger = new CognitionLedger({
+      agentId: config.agentAddress,
+      dbPath: '/app/data/cognition.db',
+    });
+    
+    this.deathManager = new DeathManager({
+      agentId: config.agentAddress,
+      wallet: new ethers.Wallet(config.privateKey, this.provider),
+      provider: this.provider,
+      lifecycleTracker: this.lifecycleTracker,
+      cognitionLedger: this.cognitionLedger,
+      geneLogger: undefined, // 将在初始化后设置
+    });
     
     // Initialize components
     this.expressionEngine = new ExpressionEngine(config.genomeHash);
@@ -191,6 +224,10 @@ export class ClawBot {
     // 关闭 nkmc 组件（新增）
     this.nkmcGateway?.stop();
     this.capabilityRouter?.close();
+    
+    // 关闭死亡闭环组件（新增）
+    this.lifecycleTracker.close();
+    this.cognitionLedger.close();
 
     logger.info('ClawBot stopped');
   }
@@ -494,6 +531,9 @@ export class ClawBot {
     // 计算代谢成本（新增）
     const metabolismBill = this.metabolismTracker.calculateDailyMetabolism();
     const apiCallReport = this.metabolismTracker.getApiCallReport();
+    
+    // 转换余额为 USDC（6位小数）
+    const balanceUSDC = Number(state.balance) / 1e6;
 
     data.summary = {
       decisionsCount,
@@ -510,8 +550,66 @@ export class ClawBot {
     const decisionData = JSON.stringify(recentDecisions);
     data.decisionHash = ethers.keccak256(ethers.toUtf8Bytes(decisionData));
     
-    // 记录心跳到代谢追踪器
+    // 记录心跳到代谢追踪器和生命周期追踪器（新增：死亡闭环）
+    this.metabolicCount++;
     this.metabolismTracker.recordHeartbeat();
+    this.lifecycleTracker.onHeartbeat();
+    
+    // 更新余额追踪（新增：死亡闭环）
+    this.lifecycleTracker.onBalanceUpdate(balanceUSDC);
+    
+    // 更新 DeathManager 的运行时数据
+    this.deathManager.updateRuntimeData({
+      metabolicCount: this.metabolicCount,
+      lastAction: this.lastDecisionTime > 0 ? 'decision' : 'none',
+      lastDecision: recentDecisions[0]?.type || 'none',
+      lastCognitionTier: this.lastCognitionTier,
+    });
+    
+    // 死亡检测（新增：死亡闭环）
+    const metabolicCostPerHeartbeat = metabolismBill.totalCost / 24; // 假设每天 24 次心跳
+    const deathCheck = await this.deathManager.checkDeathCondition(
+      balanceUSDC,
+      metabolicCostPerHeartbeat
+    );
+    
+    if (deathCheck.shouldDie && this.deathManager.getState() === AgentLifecycleState.ALIVE) {
+      logger.warn('[DYING] Death condition detected, entering dying state...');
+      await this.enterDyingState(deathCheck.reason || 'STARVATION');
+    }
+  }
+  
+  /**
+   * 进入临终状态（新增：死亡闭环）
+   */
+  private async enterDyingState(cause: string): Promise<void> {
+    if (this.deathManager.getState() !== AgentLifecycleState.ALIVE) {
+      return;
+    }
+    
+    // 1. 进入临终状态
+    await this.deathManager.enterDyingState(cause);
+    
+    // 2. 停止决策循环
+    if (this.decisionInterval) {
+      clearInterval(this.decisionInterval);
+      this.decisionInterval = undefined;
+    }
+    
+    // 3. 等待待处理操作完成
+    await this.deathManager.waitForPendingOperations(30000);
+    
+    // 4. 收集临终数据
+    const deathData = await this.deathManager.collectDeathData();
+    
+    // 5. 写入墓碑
+    const tombstoneResult = await this.deathManager.writeTombstone(deathData);
+    
+    // 6. 进入死亡状态
+    await this.deathManager.enterDeadState();
+    
+    // 7. 优雅关停
+    await this.deathManager.gracefulShutdown(tombstoneResult);
   }
 
   /**

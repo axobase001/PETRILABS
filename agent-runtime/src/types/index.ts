@@ -285,6 +285,89 @@ export interface DeathMemory {
   };
 }
 
+// ═══════════════════════════════════════════════════════════
+// Death Loop Types (死亡闭环)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Agent 生命周期状态
+ */
+export enum AgentLifecycleState {
+  ALIVE = 'ALIVE',    // 正常运行
+  DYING = 'DYING',    // 临终：停止所有决策，收集数据，写墓碑
+  DEAD = 'DEAD',      // 已死：墓碑已上链，等待容器关停
+}
+
+/**
+ * 死亡数据（完整墓碑内容）
+ */
+export interface DeathData {
+  // === 身份 ===
+  agentId: string;
+  genomeHash: string;
+  birthType: 'GENESIS' | 'FORK' | 'MERGE';
+  parentIds: string[];
+  
+  // === 生命周期经济数据 ===
+  initialBalance: number;
+  peakBalance: number;
+  finalBalance: number;
+  totalIncome: number;
+  totalExpense: number;
+  totalCognitionCost: number;
+  
+  // === 时间数据 ===
+  birthBlock: number;
+  deathBlock: number;
+  metabolicAge: number;
+  wallClockAge: number;
+  
+  // === 基因数据 ===
+  genome: object;
+  epigeneticMarks: object;
+  geneOverrideSummary: {
+    totalOverrides: number;
+    dominantTrait: string;
+    dominantTraitCount: number;
+    traitBreakdown: Record<string, number>;
+    avgDissonance: number;
+    peakDissonance: number;
+  };
+  
+  // === 认知数据 ===
+  cognitionSummary: {
+    totalThinkCycles: number;
+    freeCount: number;
+    paidCount: number;
+    avgCostPerThink: number;
+    lastCognitionTier: 'free' | 'paid';
+  };
+  
+  // === 死亡上下文 ===
+  deathCause: 'STARVATION' | 'CONTAINER_EXPIRED' | 'UNKNOWN';
+  lastAction: string;
+  lastDecision: string;
+  
+  // === 后代信息 ===
+  forkCount: number;
+  mergeCount: number;
+  childIds: string[];
+  
+  // === 元数据 ===
+  timestamp: number;
+  tombstoneVersion: '1.0';
+}
+
+/**
+ * 墓碑成本配置
+ */
+export const TOMBSTONE_COSTS = {
+  arweaveWrite: 0.3,     // Arweave 写入（通过 Irys bundler，预估上限）
+  baseL2Event: 0.1,      // Base L2 事件 gas（预估上限）
+  safetyMargin: 0.1,     // 安全边际
+  total: 0.5,            // 总预留
+} as const;
+
 // Config Types
 export interface AgentConfig {
   agentAddress: string;
