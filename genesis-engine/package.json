@@ -1,0 +1,36 @@
+{
+  "name": "@petrilabs/genesis-engine",
+  "version": "1.0.0",
+  "description": "记忆文件 → 动态基因组的完整管线",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest",
+    "lint": "eslint src/**/*.ts"
+  },
+  "keywords": [
+    "genome",
+    "ai",
+    "agent",
+    "personality",
+    "mapping"
+  ],
+  "author": "PetriLabs",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^9.4.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.9",
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}
