@@ -55,18 +55,18 @@ contract Tombstone is ERC721, ITombstone, Ownable {
      */
     function mint(
         address agent,
+        address recipient,
         DeathRecordInput calldata record
     ) external override onlyMinter returns (uint256 tokenId) {
         require(agent != address(0), "Invalid agent address");
         require(agentToTombstone[agent] == 0, "Agent already has tombstone");
         require(record.lifespan > 0, "Invalid lifespan");
+        require(recipient != address(0), "Invalid recipient");
         
         tokenId = ++_tokenIdCounter;
         
-        // 铸造给 Agent 的创作者/所有者
-        // 注意：这里假设调用者是 Agent 合约或知道所有者
-        address owner = _determineOwner(agent);
-        _safeMint(owner, tokenId);
+        // 铸造给指定的 recipient（修复 tx.origin 漏洞）
+        _safeMint(recipient, tokenId);
         
         // 存储记录
         DeathRecord storage r = _records[tokenId];
@@ -91,10 +91,11 @@ contract Tombstone is ERC721, ITombstone, Ownable {
      */
     function mintWithChainDetails(
         address agent,
+        address recipient,
         DeathRecordInput calldata record,
         ChainBalance[] calldata chainBalances
     ) external onlyMinter returns (uint256 tokenId) {
-        tokenId = mint(agent, record);
+        tokenId = mint(agent, recipient, record);
         
         DeathRecord storage r = _records[tokenId];
         for (uint i = 0; i < chainBalances.length; i++) {
@@ -152,16 +153,7 @@ contract Tombstone is ERC721, ITombstone, Ownable {
         authorizedMinters[minter] = authorized;
     }
     
-    /**
-     * @notice 确定 Tombstone 所有者
-     * @dev MVP：铸造给调用者（假设是 Agent 合约或 Orchestrator）
-     * @dev 未来：可以通过链上记录查询 Agent 的创作者
-     */
-    function _determineOwner(address agent) internal view returns (address) {
-        // 如果调用者是 Agent 合约，返回 tx.origin
-        // 否则返回调用者
-        return tx.origin;
-    }
+    // _determineOwner removed: using explicit recipient parameter to avoid tx.origin vulnerability
     
     /**
      * @notice 检查代币是否存在
@@ -171,22 +163,22 @@ contract Tombstone is ERC721, ITombstone, Ownable {
     }
     
     /**
-     * @notice 重载 transfer - 确保 Tombstone 灵魂绑定（不可转让）
-     * @dev 允许铸造（from=0）和销毁（to=0），但禁止转账
+     * @notice 重载 _update - 确保 Tombstone 灵魂绑定（不可转让）
+     * @dev OZ v5: _beforeTokenTransfer 已被 _update 取代
+     * @dev 允许铸造和销毁，但禁止转账
      */
-    function _beforeTokenTransfer(
-        address from,
+    function _update(
         address to,
         uint256 tokenId,
-        uint256 batchSize
-    ) internal override {
-        super._beforeTokenTransfer(from, to, tokenId, batchSize);
+        address auth
+    ) internal override returns (address) {
+        address from = super._update(to, tokenId, auth);
         
         // 允许铸造（from=0）
-        if (from == address(0)) return;
+        if (from == address(0)) return from;
         
         // 允许销毁（to=0）
-        if (to == address(0)) return;
+        if (to == address(0)) return from;
         
         // 禁止所有转账
         revert("Tombstone is soulbound and cannot be transferred");

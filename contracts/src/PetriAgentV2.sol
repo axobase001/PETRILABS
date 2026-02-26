@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IPetriAgentV2.sol";
 import "./interfaces/IGenomeRegistry.sol";
 import "./interfaces/IForkable.sol";
@@ -18,7 +18,7 @@ import "./interfaces/ITombstone.sol";
  * @dev Refactored: Epigenetics logic separated to Epigenetics.sol
  * @dev Integrated: AgentBank for cross-chain, Tombstone for death recording
  */
-contract PetriAgentV2 is IPetriAgentV2, Initializable, Ownable {
+contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     // ============ Constants ============
     uint256 public constant HEARTBEAT_INTERVAL = 6 hours;
     uint256 public constant MIN_BALANCE = 1e6; // 1 USDC (6 decimals)
@@ -28,6 +28,9 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, Ownable {
     uint256 public constant FORK_STRATEGY_THRESHOLD = 30 days;
     uint256 public constant HIGH_MUTATION_RATE = 3000;
     uint256 public constant LOW_MUTATION_RATE = 500;
+
+    // ============ Events ============
+    event SweepFailed(address indexed agent, address indexed recipient, uint256 amount);
 
     // ============ Core Dependencies ============
     bytes32 public genomeHash;
@@ -403,7 +406,7 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, Ownable {
         // Query cross-chain total balance
         uint256 finalBalance = agentBank.getTotalCrossChainBalance(address(this));
         
-        // Mint Tombstone NFT
+        // Mint Tombstone NFT with explicit recipient (fix tx.origin vulnerability)
         ITombstone.DeathRecordInput memory record = ITombstone.DeathRecordInput({
             genomeHash: genomeHash,
             lifespan: block.number - birthBlock,
@@ -413,10 +416,16 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, Ownable {
             causeOfDeath: reason
         });
         
-        uint256 tombstoneId = tombstone.mint(address(this), record);
+        uint256 tombstoneId = tombstone.mint(address(this), owner(), record);
         
-        // Sweep balance
-        agentBank.sweepOnDeath(address(this), owner());
+        // Direct balance transfer (fix sweepOnDeath authorization issue)
+        uint256 balance = usdc.balanceOf(address(this));
+        if (balance > 0) {
+            bool success = usdc.transfer(owner(), balance);
+            if (!success) {
+                emit SweepFailed(address(this), owner(), balance);
+            }
+        }
         
         emit AgentDied(address(this), block.timestamp, reason, arweaveTxId, finalBalance, bytes32(tombstoneId));
     }
