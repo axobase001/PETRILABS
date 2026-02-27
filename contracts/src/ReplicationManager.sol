@@ -247,6 +247,32 @@ contract ReplicationManager is IForkable, IMergeable, Ownable {
         return _executeFork(msg.sender, params);
     }
     
+    /**
+     * P1-4 Fix: Runtime 侧完成变异后的 Fork 入口
+     * @param childGenomeHash Runtime 侧已计算好的子代基因组 Hash
+     * @param endowment 给子代的初始资金
+     * @param mode Fork 模式（竞争或传承）
+     */
+    function autonomousFork(
+        bytes32 childGenomeHash,
+        uint256 endowment,
+        ForkMode mode
+    ) external returns (address child) {
+        // 只有授权的 Agent 可以调用
+        require(authorizedAgents[msg.sender], "Not authorized agent");
+        
+        // P1-4: 验证基因组已注册
+        require(
+            IGenomeRegistry(genomeRegistry).genomeExists(childGenomeHash),
+            "Genome not registered"
+        );
+        
+        return _executeForkRuntime(msg.sender, childGenomeHash, endowment, mode);
+    }
+    
+    /**
+     * 保留旧版接口（向后兼容）
+     */
     function autonomousFork(ForkParams calldata params) 
         external 
         override 
@@ -257,6 +283,78 @@ contract ReplicationManager is IForkable, IMergeable, Ownable {
         return _executeFork(msg.sender, params);
     }
     
+    /**
+     * P1-4: Runtime 变异后的 Fork 执行（新版）
+     */
+    function _executeForkRuntime(
+        address parent,
+        bytes32 childGenomeHash,
+        uint256 endowment,
+        ForkMode mode
+    ) internal returns (address child) {
+        // 1. 验证 Agent 存活
+        if (!isAgentAlive[parent]) {
+            revert ForkNotAllowed("AGENT_DEAD");
+        }
+        
+        // 2. 计算总成本（无突变溢价，因为变异已在 Runtime 完成）
+        uint256 totalCost = BASE_FORK_COST + endowment;
+        
+        // 3. 经济检查
+        uint256 parentBalance = usdc.balanceOf(parent);
+        if (parentBalance < totalCost) {
+            revert InsufficientBalance(totalCost, parentBalance);
+        }
+        
+        // 4. 扣费
+        bool success = usdc.transferFrom(parent, address(this), totalCost);
+        require(success, "Transfer failed");
+        
+        // 5. 死产检测（Runtime 已做，但链上再验证一次）
+        if (!_validateGenome(childGenomeHash)) {
+            emit ForkStillbirth(parent, childGenomeHash, "INVALID_GENOME_EXPRESSION");
+            return address(0);
+        }
+        
+        // 6. 根据模式处理父代
+        uint256 childEndowment = CHILD_MIN_BALANCE + endowment;
+        
+        if (mode == ForkMode.LEGACY) {
+            uint256 parentRemaining = usdc.balanceOf(parent);
+            childEndowment += parentRemaining;
+            isAgentAlive[parent] = false;
+            emit LegacyModeCompleted(parent, child, parentRemaining);
+        } else {
+            emit CompetitionModeActivated(parent, child, block.timestamp);
+        }
+        
+        // 7. 创建子代
+        child = _deployChildAgent(childGenomeHash, childEndowment);
+        
+        // 8. 转账给子代
+        usdc.transfer(child, childEndowment);
+        
+        // 9. 更新状态
+        forkCount[parent]++;
+        childAgents[parent].push(child);
+        agentGenomeHash[child] = childGenomeHash;
+        isAgentAlive[child] = true;
+        
+        // 10. 发送事件（mutationRate = 0 表示 Runtime 变异）
+        emit Forked(
+            parent, 
+            child, 
+            childGenomeHash, 
+            totalCost, 
+            parentBalance - totalCost,
+            0,  // Runtime 变异标记为 0
+            mode,
+            childEndowment
+        );
+        
+        return child;
+    }
+
     function _executeFork(
         address parent, 
         ForkParams memory params

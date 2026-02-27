@@ -6,14 +6,14 @@
 import OpenAI from 'openai';
 import { Contract, ethers } from 'ethers';
 import { logger } from '../utils/logger';
-import ExpressionEngine from '../genome/expression';
+import { ExpressionEngine } from '../gene-expression/expression';
 import SkillRegistry from '../skills/registry';
-import DecisionEngine from '../decision/engine';
+import { IntegratedDecisionEngine } from '../decision/decision-engine';
 import HeartbeatService from '../chain/heartbeat';
 import { NkmcGateway } from '../gateways/nkmc';
 import { CapabilityRouter } from '../routers/capability';
 import MetabolismTracker from '../metabolism/tracker';
-import { CognitionRouter } from '../cognition';
+import { CognitionRouter, GeneRouter } from '../cognition';
 import { GeneExpressionEngine, GeneLogger } from '../gene-expression';
 import { 
   AgentConfig, 
@@ -33,12 +33,13 @@ import { LeaseManager } from '../infrastructure/lease-manager';
 import { LeaseRenewalAdapter } from '../skills/adapters/lease-renewal';
 import { WorkingMemory } from '../memory/working-memory';
 import { AutoEpigeneticService } from '../auto-epigenetics';
+import { ForkOrchestrator } from '../evolution/fork-orchestrator';
 
 export class ClawBot {
   private config: AgentConfig;
   private expressionEngine: ExpressionEngine;
   private skillRegistry: SkillRegistry;
-  private decisionEngine: DecisionEngine;
+  private decisionEngine: IntegratedDecisionEngine;
   private heartbeatService: HeartbeatService;
   private llm: OpenAI;
   private provider: ethers.JsonRpcProvider;
@@ -71,12 +72,16 @@ export class ClawBot {
   // Task 36: 自动表观遗传服务
   private autoEpigenetics?: AutoEpigeneticService;
   
+  // P1-4: Fork 协调器
+  private forkOrchestrator?: ForkOrchestrator;
+  
   private isRunning = false;
   private decisionInterval?: NodeJS.Timeout;
   private lastDecisionTime = 0;
   private loadedGenes: Gene[] = [];
   private metabolicCount: number = 0;
   private lastCognitionTier: 'free' | 'paid' = 'free';
+  private decisionCount: number = 0; // P1-4: 决策计数器用于 Fork 评估
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -116,9 +121,10 @@ export class ClawBot {
     });
     
     // Initialize components
-    this.expressionEngine = new ExpressionEngine(config.genomeHash);
+    // P2-1 Fix: 使用默认基因组初始化，稍后从链上加载实际基因
+    const defaultGenome = new Array(63).fill(50000); // 63 genes, default value 50000
+    this.expressionEngine = new ExpressionEngine(defaultGenome);
     this.skillRegistry = new SkillRegistry(this.buildSkillContext());
-    this.decisionEngine = new DecisionEngine(config.llm.apiKey, config.llm.model);
     this.heartbeatService = new HeartbeatService(
       config.rpcUrl,
       config.privateKey,
@@ -149,6 +155,27 @@ export class ClawBot {
         triggerStressResponse: async (type: string, context: unknown) => {
           await this.triggerStressResponse(type, context);
         },
+      },
+    });
+    
+    // P2-2 Fix: 创建 GeneRouter 供 IntegratedDecisionEngine 使用
+    const geneRouter = new GeneRouter({
+      wallet: new ethers.Wallet(config.privateKey, this.provider),
+      traits: {
+        reasoningDepth: 0.7,
+        creativity: 0.5,
+        analytical: 0.8,
+        adaptability: 0.6,
+      },
+    });
+    
+    // P2-2 Fix: 使用 IntegratedDecisionEngine 替代基础 DecisionEngine
+    this.decisionEngine = new IntegratedDecisionEngine({
+      apiKey: config.llm.apiKey,
+      model: config.llm.model,
+      router: geneRouter,
+      onInstinctStateChange: (active) => {
+        logger.info(`Instinct mode ${active ? 'activated' : 'deactivated'}`);
       },
     });
     
@@ -221,6 +248,19 @@ export class ClawBot {
     );
     
     logger.info('AutoEpigeneticService initialized');
+    
+    // P1-4: 初始化 ForkOrchestrator
+    if (config.contracts?.replicationManager && config.contracts?.genomeRegistry) {
+      this.forkOrchestrator = new ForkOrchestrator({
+        expressionEngine: this.expressionEngine,
+        workingMemory: this.workingMemory,
+        replicationManagerAddress: config.contracts.replicationManager,
+        genomeRegistryAddress: config.contracts.genomeRegistry,
+        wallet: new ethers.Wallet(config.privateKey, this.provider),
+        provider: this.provider,
+      });
+      logger.info('ForkOrchestrator initialized');
+    }
 
     // Genome registry contract
     const GENOME_REGISTRY_ABI = [
@@ -565,9 +605,15 @@ export class ClawBot {
       // Make decision
       const decision = await this.decisionEngine.makeDecision(context);
       this.lastDecisionTime = now;
+      this.decisionCount++;
 
       // Execute decision
       await this.executeDecision(decision, expressions);
+      
+      // P1-4: 定期评估 Fork 条件（每 10 次决策检查一次）
+      if (this.decisionCount % 10 === 0) {
+        await this.evaluateReplication();
+      }
 
     } catch (error) {
       logger.error('Decision making failed', { error });
@@ -885,6 +931,63 @@ export class ClawBot {
    */
   private async logMemory(event: MemoryEvent): Promise<void> {
     await this.skillRegistry['context'].memory.log(event);
+  }
+
+  /**
+   * P1-4: 评估并执行 Fork（自主繁殖）
+   */
+  async evaluateReplication(): Promise<void> {
+    if (!this.forkOrchestrator || !this.workingMemory) {
+      return;
+    }
+    
+    const balance = await this.getBalanceUSDC();
+    const dailyCost = this.config.lease?.dailyRate || 1;
+    const survivalCost = dailyCost * 7; // 7 天生存成本
+    
+    // 获取适应度上下文
+    const fitness = {
+      winRate: this.workingMemory.getWinRate(),
+      roi: this.workingMemory.getAveragePnL(),
+      survivalDays: this.workingMemory.getSurvivalDays(),
+      stressLevel: this.workingMemory.getStressLevel(),
+    };
+    
+    // 评估是否应该 Fork
+    const evaluation = this.forkOrchestrator.shouldFork(balance, dailyCost, fitness);
+    
+    if (!evaluation.shouldFork) {
+      logger.debug(`[FORK] Skip: ${evaluation.reason}`);
+      return;
+    }
+    
+    logger.info(`[FORK] ${evaluation.reason} - Starting fork process...`);
+    
+    try {
+      // 构建父代基因组
+      const parentGenome = {
+        genes: this.loadedGenes.map(g => g.value),
+        generation: 1,
+        parentHash: undefined,
+      };
+      
+      // 执行 Fork
+      const result = await this.forkOrchestrator.executeFork({
+        parentAgent: this.config.agentAddress,
+        parentGenome,
+        trigger: fitness.stressLevel > 0.8 ? 'STRESS' : 'AUTONOMOUS',
+        endowment: survivalCost, // 给子代 7 天生存资金
+        mode: 'COMPETITION',
+      });
+      
+      if (result.success) {
+        logger.info(`[FORK] ✅ Success! Child: ${result.childAgent}`);
+      } else {
+        logger.error(`[FORK] ❌ Failed: ${result.error}`);
+      }
+    } catch (error: any) {
+      logger.error('[FORK] Error during fork', { error: error.message });
+    }
   }
 
   /**

@@ -3,6 +3,8 @@
  * Task 31: Peak balance tracking and financial decisions
  */
 
+import { logger } from '../utils/logger';
+
 export interface MemoryItem {
   type: 'observation' | 'decision' | 'skill_result' | 'event';
   content: string;
@@ -270,6 +272,62 @@ export class WorkingMemory {
     this.initialDeposit = 0;
     this.totalDecisions = 0;
   }
+  
+  // ============ P1-4: Fork Orchestrator Support ============
+  
+  private offspring: Array<{ address: string; genomeHash: string; timestamp: number }> = [];
+  private stressLevel: number = 0.5;
+  private birthTimestamp: number = Date.now();
+  
+  /**
+   * Record offspring after successful fork
+   */
+  recordOffspring(address: string, genomeHash: string): void {
+    this.offspring.push({
+      address,
+      genomeHash,
+      timestamp: Date.now(),
+    });
+    logger.info(`[WORKING_MEMORY] Offspring recorded: ${address}`);
+  }
+  
+  /**
+   * Get all offspring
+   */
+  getOffspring(): Array<{ address: string; genomeHash: string; timestamp: number }> {
+    return [...this.offspring];
+  }
+  
+  /**
+   * Update stress level (0-1)
+   */
+  setStressLevel(level: number): void {
+    this.stressLevel = Math.max(0, Math.min(1, level));
+  }
+  
+  /**
+   * Get current stress level
+   */
+  getStressLevel(): number {
+    return this.stressLevel;
+  }
+  
+  /**
+   * Get survival days since birth
+   */
+  getSurvivalDays(): number {
+    return (Date.now() - this.birthTimestamp) / (1000 * 86400);
+  }
+  
+  /**
+   * Get financial history for fitness calculation
+   */
+  getFinancialHistory(): FinancialDecision[] {
+    return [...this.financialDecisions];
+  }
 }
+
+// Import logger at top of file
+import { logger } from '../utils/logger';
 
 export default WorkingMemory;
