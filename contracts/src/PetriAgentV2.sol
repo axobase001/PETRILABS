@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IPetriAgentV2.sol";
 import "./interfaces/IGenomeRegistry.sol";
@@ -179,7 +179,8 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         if (_genomeHash == bytes32(0)) revert InvalidGenome();
         if (_orchestrator == address(0)) revert InvalidAmount();
         if (_usdc == address(0)) revert InvalidAmount();
-        if (_agentEOA == address(0)) revert InvalidAgentEOA();
+        // P0-1 fix: Allow address(0) for agentEOA, can be set later by orchestrator
+        // if (_agentEOA == address(0)) revert InvalidAgentEOA();
         if (_creator == address(0)) revert InvalidAmount();
         if (_creatorShareBps > 5000) revert InvalidAmount(); // Max 50%
         
@@ -364,35 +365,39 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     /// @return dependencyBps 依赖度，单位：基点（0-10000）
     /// @dev 0 = 完全自产自足（100% earned），10000 = 完全依赖外部（0% earned）
     /// 公式：(initialDeposit + totalExternalFunding) / totalIncome * 10000
-    function getSurvivalDependency() external view returns (uint256 dependencyBps) {
+    /// @notice 计算生存依赖度（内部函数版本）
+    function _calculateDependency() internal view returns (uint256) {
         uint256 totalIncome = initialDeposit + totalExternalFunding + totalEarnedIncome;
-        
         if (totalIncome == 0) {
-            return 10000; // 默认 100% 依赖（无收入时）
+            return 10000;
         }
-        
         uint256 externalIncome = initialDeposit + totalExternalFunding;
         return (externalIncome * 10000) / totalIncome;
+    }
+
+    /// @notice 计算生存依赖度（外部调用版本）
+    function getSurvivalDependency() external view returns (uint256 dependencyBps) {
+        return _calculateDependency();
     }
     
     /// @notice 获取收入结构详情（方便 Dashboard 展示）
     /// @return initial 初始存款
-    /// @return external 外部充值累计
+    /// @return externalFunding 外部充值累计
     /// @return earned 自赚收入累计
     /// @return total 总收入
     /// @return dependencyBps 生存依赖度（基点）
     function getIncomeStats() external view returns (
         uint256 initial,
-        uint256 external,
+        uint256 externalFunding,
         uint256 earned,
         uint256 total,
         uint256 dependencyBps
     ) {
         initial = initialDeposit;
-        external = totalExternalFunding;
+        externalFunding = totalExternalFunding;
         earned = totalEarnedIncome;
-        total = initial + external + earned;
-        dependencyBps = getSurvivalDependency();
+        total = initial + externalFunding + earned;
+        dependencyBps = _calculateDependency();
     }
 
     function die(string calldata arweaveTxId) external override onlyOrchestrator onlyAlive {

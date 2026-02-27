@@ -21,12 +21,19 @@ contract PetriFactoryV2 is IPetriFactoryV2, Ownable {
     uint256 public constant MIN_DEPOSIT = 20 * 1e6; // 20 USDC
     uint256 public constant PLATFORM_FEE = 5 * 1e6; // 5 USDC
     uint256 public constant MEMORY_MATCH_THRESHOLD = 6000; // 60% match threshold
+    uint256 public constant DEFAULT_CREATOR_SHARE_BPS = 5000; // 50% creator share
 
     // ============ State Variables ============
     address public agentImplementation;
     address public genomeRegistry;
     IERC20 public usdc;
     address public orchestrator;
+    
+    // Additional contract addresses (P0-1 fix)
+    address public replicationManager;
+    address public epigenetics;
+    address public agentBank;
+    address public tombstone;
     
     // Agent tracking
     mapping(address => AgentInfo) public agents;
@@ -190,25 +197,27 @@ contract PetriFactoryV2 is IPetriFactoryV2, Ownable {
         // Create proxy clone
         agent = agentImplementation.clone();
         
-        // Initialize agent
-        // Note: In production, you'd use a two-phase init:
-        // 1. Create agent with temp values
-        // 2. Orchestrator submits genome
-        // 3. Update agent with real genome hash
+        // Approve USDC for agent to pull during initialize
+        usdc.approve(agent, deposit);
         
-        // For this implementation, we init with temp and expect orchestrator
-        // to have already submitted the genome before this call
+        // Initialize agent with all 12 parameters (P0-1 fix)
         IPetriAgentV2(agent).initialize(
             tempGenomeHash,
             orchestrator,
             address(usdc),
             genomeRegistry,
-            0 // Balance will be transferred separately
+            replicationManager,     // can be address(0) initially
+            epigenetics,            // can be address(0) initially
+            agentBank,              // can be address(0) initially
+            tombstone,              // can be address(0) initially
+            deposit,
+            address(0),             // agentEOA - set by orchestrator later
+            msg.sender,             // creator
+            DEFAULT_CREATOR_SHARE_BPS
         );
 
-        // Transfer deposit
-        bool success = usdc.transfer(agent, deposit);
-        if (!success) revert AgentCreationFailed();
+        // Note: USDC is transferred via approve/transferFrom pattern in initialize
+        // No separate transfer needed here
 
         // Record agent
         agents[agent] = AgentInfo({
@@ -281,6 +290,27 @@ contract PetriFactoryV2 is IPetriFactoryV2, Ownable {
     function updateGenomeRegistry(address _newRegistry) external onlyOwner {
         if (_newRegistry == address(0)) revert InvalidAgentImplementation();
         genomeRegistry = _newRegistry;
+    }
+
+    // P0-1 fix: Add setters for additional contract addresses
+    function setReplicationManager(address _replicationManager) external onlyOwner {
+        if (_replicationManager == address(0)) revert InvalidAgentImplementation();
+        replicationManager = _replicationManager;
+    }
+
+    function setEpigenetics(address _epigenetics) external onlyOwner {
+        if (_epigenetics == address(0)) revert InvalidAgentImplementation();
+        epigenetics = _epigenetics;
+    }
+
+    function setAgentBank(address _agentBank) external onlyOwner {
+        if (_agentBank == address(0)) revert InvalidAgentImplementation();
+        agentBank = _agentBank;
+    }
+
+    function setTombstone(address _tombstone) external onlyOwner {
+        if (_tombstone == address(0)) revert InvalidAgentImplementation();
+        tombstone = _tombstone;
     }
 
     function withdrawFunds() external override onlyOwner {
