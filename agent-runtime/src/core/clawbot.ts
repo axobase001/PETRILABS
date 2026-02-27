@@ -858,7 +858,9 @@ export class ClawBot {
     });
     
     // 死亡检测（新增：死亡闭环）
-    const metabolicCostPerHeartbeat = metabolismBill.totalCost / 24; // 假设每天 24 次心跳
+    // P2-NEW-3: 使用实际 heartbeat 间隔计算（合约 MIN_HEARTBEAT_INTERVAL = 6h，即每天最多 4 次）
+    const heartbeatsPerDay = Math.max(1, 86400000 / this.config.intervals.heartbeat);
+    const metabolicCostPerHeartbeat = metabolismBill.totalCost / heartbeatsPerDay;
     const deathCheck = await this.deathManager.checkDeathCondition(
       balanceUSDC,
       metabolicCostPerHeartbeat
@@ -1097,6 +1099,29 @@ export class ClawBot {
     } catch (error: any) {
       logger.error('[FORK] Error during fork', { error: error.message });
     }
+  }
+
+  /**
+   * 获取当前 USDC 余额（人类可读单位）
+   * P0-NEW-1: 修复 TypeError: this.getBalanceUSDC is not a function
+   */
+  private async getBalanceUSDC(): Promise<number> {
+    try {
+      const state = await this.heartbeatService.getState();
+      return Number(state.balance) / 1e6;
+    } catch (error) {
+      logger.error('[BALANCE] Failed to get USDC balance', { error });
+      return 0;
+    }
+  }
+
+  /**
+   * 优雅关停（由 DeathManager onShutdown 回调触发）
+   * P0-NEW-2: 修复 TypeError: this.gracefulShutdown is not a function
+   */
+  private async gracefulShutdown(): Promise<void> {
+    logger.info('[SHUTDOWN] ClawBot graceful shutdown triggered by DeathManager');
+    await this.stop();
   }
 
   /**

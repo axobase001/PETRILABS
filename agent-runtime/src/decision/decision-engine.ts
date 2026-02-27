@@ -344,6 +344,18 @@ Make a decision in JSON format with: type, skillId, params, expectedOutcome`;
   getRecentDecisions(): Decision[] {
     return [...this.recentDecisions];
   }
+
+  /**
+   * P0-NEW-4: 标记决策已执行
+   * 修复 TypeError: this.decisionEngine.markExecuted is not a function
+   */
+  markExecuted(decisionId: string, result: { success: boolean; error?: string }): void {
+    const decision = this.recentDecisions.find(d => d.id === decisionId);
+    if (decision) {
+      (decision as any).executed = true;
+      (decision as any).result = result;
+    }
+  }
 }
 
 export default IntegratedDecisionEngine;

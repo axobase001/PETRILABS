@@ -402,7 +402,11 @@ export interface AgentConfig {
   contracts: {
     genomeRegistry: string;
     petriAgent: string;
-    geneLog?: string;  // 基因日志合约地址（新增）
+    replicationManager?: string;  // 新增：Fork 操作需要
+    epigenetics?: string;         // 新增：表观遗传合约
+    agentBank?: string;           // 新增：跨链资金管理
+    tombstone?: string;           // 新增：死亡墓碑
+    geneLog?: string;             // 基因日志合约地址
   };
   llm: {
     apiKey: string;

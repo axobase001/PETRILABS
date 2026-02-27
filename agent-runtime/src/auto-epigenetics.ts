@@ -15,9 +15,10 @@ import GeneExpressionEngine from './gene-expression/engine';
 
 /**
  * 代谢追踪器接口（简化）
+ * P1-NEW-4: getStressLevel 需要接收 currentBalance 参数
  */
 interface MetabolismTracker {
-  getStressLevel(): number;  // 0.0 - 1.0
+  getStressLevel(currentBalance: number): number;  // 0.0 - 1.0，需要传入当前余额
   getBalanceTrend(): 'increasing' | 'stable' | 'decreasing';
   getDailyCost(): number;
 }
@@ -110,6 +111,19 @@ export class AutoEpigeneticService {
   }
 
   /**
+   * P1-NEW-4: 获取 Agent 当前余额
+   */
+  private async getAgentBalance(): Promise<number> {
+    try {
+      const balanceWei = await this.agentContract.getBalance();
+      return Number(balanceWei) / 1e6;  // 转换为 USDC 人类可读单位
+    } catch (error) {
+      logger.warn('[AUTO_EPI] Failed to get agent balance', { error });
+      return 0;
+    }
+  }
+
+  /**
    * 评估生存状态并自主适应
    * 
    * 这是闭合自主反馈回路的核心函数：
@@ -125,7 +139,8 @@ export class AutoEpigeneticService {
       return;
     }
     
-    const stressLevel = this.metabolism.getStressLevel();
+    const balance = await this.getAgentBalance();
+    const stressLevel = this.metabolism.getStressLevel(balance);
     const balanceTrend = this.metabolism.getBalanceTrend();
     const adaptations: string[] = [];
     
@@ -378,16 +393,20 @@ export class AutoEpigeneticService {
   /**
    * 获取当前适应状态报告
    */
-  getStatus(): {
+  /**
+   * P1-NEW-4: 修改为 async 以支持获取余额计算压力水平
+   */
+  async getStatus(): Promise<{
     lastAdaptation: number;
     cooldownActive: boolean;
     stressLevel: number;
     usageStats: Record<string, unknown>;
-  } {
+  }> {
+    const balance = await this.getAgentBalance();
     return {
       lastAdaptation: this.lastAdaptationTime,
       cooldownActive: Date.now() - this.lastAdaptationTime < this.ADAPTATION_COOLDOWN,
-      stressLevel: this.metabolism.getStressLevel(),
+      stressLevel: this.metabolism.getStressLevel(balance),
       usageStats: this.expressionEngine.getUsageStats(),
     };
   }

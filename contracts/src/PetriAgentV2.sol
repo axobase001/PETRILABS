@@ -215,8 +215,10 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         isAlive = true;
         forkCount = 0;
 
-        // Initialize epigenetics state
-        epigenetics.initializeAgent(address(this), _initialBalance);
+        // Initialize epigenetics state (skip if not set yet)
+        if (address(epigenetics) != address(0)) {
+            epigenetics.initializeAgent(address(this), _initialBalance);
+        }
 
         // Transfer initial balance
         if (_initialBalance > 0) {
@@ -261,8 +263,13 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         uint256 daysSinceLastHeartbeat = (block.timestamp - lastHeartbeat) / 1 days;
         uint256 costSinceLastHeartbeat = metabolicCost * daysSinceLastHeartbeat / METABOLIC_SCALE;
         
-        // Check death condition using cross-chain balance
-        uint256 totalBalance = agentBank.getTotalCrossChainBalance(address(this));
+        // Check death condition using cross-chain balance (fallback to local if agentBank not set)
+        uint256 totalBalance;
+        if (address(agentBank) != address(0)) {
+            totalBalance = agentBank.getTotalCrossChainBalance(address(this));
+        } else {
+            totalBalance = usdc.balanceOf(address(this));
+        }
         if (totalBalance < MIN_BALANCE + costSinceLastHeartbeat) {
             _die("metabolic_exhaustion", "");
             return false;
@@ -447,6 +454,14 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         
         // 调用内部死亡逻辑，记录遗弃原因
         _die("ABANDONED", "");
+    }
+
+    /// @notice 设置 Agent EOA（仅限 orchestrator，仅可设置一次）
+    /// @dev Factory 创建时 agentEOA=address(0)，orchestrator 后续设置实际 EOA
+    function setAgentEOA(address _agentEOA) external onlyOrchestrator {
+        require(_agentEOA != address(0), "Invalid EOA");
+        require(agentEOA == address(0), "EOA already set");
+        agentEOA = _agentEOA;
     }
 
     // ============ Autonomous Replication ============
@@ -741,6 +756,7 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     }
     
     function getCrossChainBalance() external view returns (uint256) {
+        if (address(agentBank) == address(0)) return usdc.balanceOf(address(this));
         return agentBank.getTotalCrossChainBalance(address(this));
     }
 

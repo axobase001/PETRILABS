@@ -21,7 +21,7 @@ contract PetriFactoryV2 is IPetriFactoryV2, Ownable {
     uint256 public constant MIN_DEPOSIT = 20 * 1e6; // 20 USDC
     uint256 public constant PLATFORM_FEE = 5 * 1e6; // 5 USDC
     uint256 public constant MEMORY_MATCH_THRESHOLD = 6000; // 60% match threshold
-    uint256 public constant DEFAULT_CREATOR_SHARE_BPS = 5000; // 50% creator share
+    uint256 public constant DEFAULT_CREATOR_SHARE_BPS = 1000; // 10% creator share (实验期，最大化 Agent 资本积累)
 
     // ============ State Variables ============
     address public agentImplementation;

@@ -13,8 +13,8 @@ import { ethers, Contract } from 'ethers';
 import { logger } from '../utils/logger';
 import { ExpressionEngine } from '../gene-expression/expression';
 import { WorkingMemory } from '../memory/working-memory';
-import { MutationEngine } from './mutation';
-import { CrossoverEngine } from './crossover';
+import { mutateGenome, GeneEpigeneticRecord } from './mutation';
+import { crossoverGenomes, MergeParticipant } from './crossover';
 
 // 基因组数据结构
 export interface Genome {
@@ -54,8 +54,7 @@ interface FitnessContext {
 export class ForkOrchestrator {
   private expressionEngine: ExpressionEngine;
   private workingMemory: WorkingMemory;
-  private mutationEngine: MutationEngine;
-  private crossoverEngine: CrossoverEngine;
+
   private replicationManager: Contract;
   private genomeRegistry: Contract;
   private wallet: ethers.Wallet;
@@ -73,13 +72,6 @@ export class ForkOrchestrator {
     this.workingMemory = config.workingMemory;
     this.wallet = config.wallet;
     this.provider = config.provider;
-
-    // 初始化进化引擎（使用表观遗传数据）
-    this.mutationEngine = new MutationEngine({
-      epigeneticProfile: this.getEpigeneticProfile(),
-    });
-
-    this.crossoverEngine = new CrossoverEngine();
 
     // 初始化合约接口
     this.replicationManager = new Contract(
@@ -155,27 +147,58 @@ export class ForkOrchestrator {
       if (context.partnerGenome) {
         // 有性繁殖（Merge）：交叉 + 变异
         logger.info('🔄 执行有性繁殖（Merge）');
-        childGenome = this.crossoverEngine.crossover({
-          parentA: context.parentGenome,
-          parentB: context.partnerGenome,
-          weights: {
-            fitness: 0.4,
-            geneticDistance: 0.3,
-            environmentalNiche: 0.3,
+        const crossResult = crossoverGenomes(
+          {
+            address: context.parentAgent,
+            genome: context.parentGenome.genes,
+            balance: 0, // 可由 ClawBot 传入实际值
+            survivalDays: 0,
+            isInitiator: true,
           },
-        });
-        // 交叉后再变异
-        childGenome = this.mutationEngine.mutate(childGenome, {
-          stressLevel: parentEpigenetics.stressLevel,
-          useItOrLoseIt: parentEpigenetics.expressionHistory,
-        });
+          {
+            address: '0x0', // partner address
+            genome: context.partnerGenome.genes,
+            balance: 0,
+            survivalDays: 0,
+            isInitiator: false,
+          }
+        );
+        
+        // 构建表观遗传档案进行变异
+        const epiProfile: GeneEpigeneticRecord[] = crossResult.childGenome.map((_, i) => ({
+          geneIndex: i,
+          activationCount: parentEpigenetics.expressionHistory.get(i.toString()) || 0,
+          impactWeight: 0.5,
+          methylation: 0,
+          lastActivated: 0,
+        }));
+        
+        const mutatedGenes = mutateGenome(crossResult.childGenome, epiProfile);
+        childGenome = {
+          genes: mutatedGenes,
+          generation: context.parentGenome.generation + 1,
+          parentHash: context.parentGenome.parentHash,
+        };
       } else {
         // 无性繁殖（Fork）：直接变异
         logger.info('🔄 执行无性繁殖（Fork）');
-        childGenome = this.mutationEngine.mutate(context.parentGenome, {
-          stressLevel: parentEpigenetics.stressLevel,
-          amplificationGenes: this.getAmplifiedGenes(parentEpigenetics),
-        });
+        
+        // 构建表观遗传档案
+        const epiProfile: GeneEpigeneticRecord[] = context.parentGenome.genes.map((_, i) => ({
+          geneIndex: i,
+          activationCount: parentEpigenetics.expressionHistory.get(i.toString()) || 0,
+          impactWeight: 0.5,
+          methylation: 0,
+          lastActivated: 0,
+        }));
+        
+        // 调用函数而非类方法
+        const childGenes = mutateGenome(context.parentGenome.genes, epiProfile);
+        childGenome = {
+          genes: childGenes,
+          generation: context.parentGenome.generation + 1,
+          parentHash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(context.parentGenome.genes))),
+        };
       }
 
       // 步骤 3：计算子代基因组 Hash

@@ -40,12 +40,19 @@ export class WorkingMemory {
   // Decision cycle counter for fitness metrics
   private totalDecisions: number = 0;
 
-  constructor(
-    maxSize: number = 100,
-    balanceWindowHours: number = 24
-  ) {
-    this.maxSize = maxSize;
-    this.balanceWindowMs = balanceWindowHours * 60 * 60 * 1000;
+  /**
+   * P0-NEW-3: 修复构造函数签名，支持对象参数和位置参数（向后兼容）
+   */
+  constructor(config: { maxSize?: number; balanceWindowHours?: number } | number = {}, balanceWindowHours?: number) {
+    if (typeof config === 'number') {
+      // 向后兼容位置参数：new WorkingMemory(100, 24)
+      this.maxSize = config;
+      this.balanceWindowMs = (balanceWindowHours ?? 24) * 60 * 60 * 1000;
+    } else {
+      // 对象参数：new WorkingMemory({ maxSize: 100, balanceWindowHours: 24 })
+      this.maxSize = config.maxSize ?? 100;
+      this.balanceWindowMs = (config.balanceWindowHours ?? 24) * 60 * 60 * 1000;
+    }
   }
 
   /**
