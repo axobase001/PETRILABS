@@ -29,6 +29,9 @@ import {
 import LifecycleTracker from '../lifecycle/tracker';
 import CognitionLedger from '../cognition/ledger';
 import DeathManager from '../lifecycle/death-manager';
+import { LeaseManager } from '../infrastructure/lease-manager';
+import { LeaseRenewalAdapter } from '../skills/adapters/lease-renewal';
+import { WorkingMemory } from '../memory/working-memory';
 
 export class ClawBot {
   private config: AgentConfig;
@@ -57,6 +60,12 @@ export class ClawBot {
   private lifecycleTracker: LifecycleTracker;
   private cognitionLedger: CognitionLedger;
   private deathManager: DeathManager;
+  
+  // Task 35: 租赁管理
+  private leaseManager?: LeaseManager;
+  
+  // Task 31: 工作记忆与代谢追踪
+  private workingMemory?: WorkingMemory;
   
   private isRunning = false;
   private decisionInterval?: NodeJS.Timeout;
@@ -155,6 +164,48 @@ export class ClawBot {
       
       logger.info('GeneLogger initialized');
     }
+
+    // Task 35: 初始化 LeaseManager
+    if (config.lease) {
+      this.leaseManager = new LeaseManager({
+        leaseExpiry: config.lease.expiry,
+        x402Endpoint: config.lease.x402Endpoint,
+        akashLeaseId: config.lease.akashLeaseId,
+        currentRentRate: config.lease.dailyRate,
+      });
+      
+      // 注册租赁续期技能
+      this.skillRegistry.register(new LeaseRenewalAdapter(this.leaseManager));
+      
+      logger.info('LeaseManager initialized', {
+        expiry: config.lease.expiry,
+        dailyRate: config.lease.dailyRate,
+      });
+    }
+
+    // Task 31: 初始化 WorkingMemory
+    this.workingMemory = new WorkingMemory({
+      maxSize: 100,
+      balanceWindowHours: 24,
+    });
+    
+    if (config.initialDeposit) {
+      this.workingMemory.setInitialDeposit(config.initialDeposit);
+    }
+    
+    // 更新 DeathManager，注入 WorkingMemory 和 MetabolismTracker
+    this.deathManager = new DeathManager({
+      agentId: config.agentAddress,
+      wallet: new ethers.Wallet(config.privateKey, this.provider),
+      provider: this.provider,
+      lifecycleTracker: this.lifecycleTracker,
+      cognitionLedger: this.cognitionLedger,
+      geneLogger: this.geneLogger,
+      workingMemory: this.workingMemory,
+      metabolismTracker: this.metabolismTracker,
+      initialDeposit: config.initialDeposit || 0,
+      onShutdown: () => this.gracefulShutdown(),
+    });
 
     // Genome registry contract
     const GENOME_REGISTRY_ABI = [
@@ -439,6 +490,20 @@ export class ClawBot {
       // Get available skills
       const availableSkills = this.skillRegistry.getAvailable(expressions);
 
+      // Task 35: 获取租期上下文
+      let leaseContext = null;
+      if (this.leaseManager) {
+        leaseContext = await this.leaseManager.getLeasePromptContext();
+      }
+      
+      // Task 31: 获取财务历史上下文
+      const financialContext = this.workingMemory ? {
+        peakBalance: this.workingMemory.getPeakBalance(),
+        profitableDecisions: this.workingMemory.getProfitableDecisionsCount(),
+        totalFinancialDecisions: this.workingMemory.getTotalFinancialDecisionsCount(),
+        winRate: this.workingMemory.getWinRate(),
+      } : null;
+
       // Build decision context
       const context = {
         state,
@@ -450,6 +515,10 @@ export class ClawBot {
           timeSinceLastDecision: timeSinceLast,
           timeOfDay: new Date().getHours(),
         },
+        // 新增：Task 35 租期上下文
+        lease: leaseContext,
+        // 新增：Task 31 财务上下文
+        financialHistory: financialContext,
       };
 
       // Make decision
@@ -477,7 +546,10 @@ export class ClawBot {
       skillId: decision.skillId,
     });
 
-    let result: { success: boolean; error?: string } = { success: false };
+    // Task 31: 记录执行前的余额
+    const balanceBefore = await this.getBalanceUSDC();
+
+    let result: { success: boolean; error?: string; pnl?: number; data?: any } = { success: false };
 
     if (decision.type === 'skill_execution' && decision.skillId) {
       result = await this.skillRegistry.execute(decision.skillId, decision.params);
@@ -487,6 +559,41 @@ export class ClawBot {
       logger.info('Agent resting');
     } else {
       result = { success: true };
+    }
+
+    // Task 31: 记录财务决策结果
+    const balanceAfter = await this.getBalanceUSDC();
+    const pnl = result.pnl !== undefined ? result.pnl : (balanceAfter - balanceBefore);
+    
+    if (this.workingMemory && decision.skillId) {
+      this.workingMemory.recordFinancialResult(
+        decision.skillId,
+        pnl,
+        {
+          decisionId: decision.id,
+          params: decision.params,
+          success: result.success,
+        }
+      );
+      
+      logger.debug('[FINANCE] Decision recorded', {
+        skillId: decision.skillId,
+        pnl,
+        balanceBefore,
+        balanceAfter,
+      });
+    }
+    
+    // Task 35: 如果涉及租赁续期，更新 LeaseManager
+    if (decision.skillId === 'renew_lease' && result.success && result.data) {
+      const daysExtended = result.data.days;
+      if (daysExtended && this.leaseManager) {
+        const currentExpiry = this.leaseManager.getConfig().leaseExpiry;
+        this.leaseManager.updateLeaseConfig({
+          leaseExpiry: currentExpiry + daysExtended * 86400,
+        });
+        logger.info(`[LEASE] Lease extended by ${daysExtended} days`);
+      }
     }
 
     // Mark as executed
@@ -534,6 +641,41 @@ export class ClawBot {
     
     // 转换余额为 USDC（6位小数）
     const balanceUSDC = Number(state.balance) / 1e6;
+    
+    // Task 31: 记录当前余额到 WorkingMemory
+    if (this.workingMemory) {
+      this.workingMemory.recordBalance({
+        timestamp: Date.now(),
+        usdcBalance: balanceUSDC,
+        ethBalance: 0, // ETH 余额可扩展
+      });
+    }
+    
+    // Task 35: 容器租期检测（在死亡检测之前）
+    if (this.leaseManager) {
+      const remainingDays = this.leaseManager.getRemainingDays();
+      const leaseStatus = this.leaseManager.getLeaseStatus();
+      
+      logger.info(`[LEASE] Status: ${leaseStatus}, Remaining: ${remainingDays} days`);
+      
+      if (this.leaseManager.isEvictionImminent()) {
+        logger.warn('⚠️ 租期即将到期（<=1天），评估续租策略...');
+        
+        const strategy = await this.leaseManager.getRenewalStrategy(balanceUSDC);
+        
+        if (!strategy.canAfford1) {
+          // 无法负担续租，进入濒死状态
+          logger.error('❌ 无法负担续租，进入 EVICTION 濒死状态');
+          await this.deathManager.enterDyingState('EVICTION');
+          return; // 阻止此次心跳
+        }
+        
+        // 可以负担，记录决策上下文
+        logger.info(`[LEASE] 续租策略: ${strategy.message}, 推荐: ${strategy.recommendedDays}天`);
+      } else if (this.leaseManager.isRenewalUrgent()) {
+        logger.warn(`⚠️ 租期紧急（<=5天），剩余 ${remainingDays} 天`);
+      }
+    }
 
     data.summary = {
       decisionsCount,

@@ -428,4 +428,15 @@ export interface AgentConfig {
     };
     contract?: any;  // ethers.Contract
   };
+  
+  // Task 35: 容器租赁配置
+  lease?: {
+    expiry: number;           // 租期到期时间戳（秒）
+    x402Endpoint: string;     // x402 支付端点
+    akashLeaseId: string;     // Akash 租约 ID
+    dailyRate: number;        // 每日租金（USDC）
+  };
+  
+  // Task 31: 财务追踪配置
+  initialDeposit?: number;    // 初始存款金额（用于 fitness 计算）
 }

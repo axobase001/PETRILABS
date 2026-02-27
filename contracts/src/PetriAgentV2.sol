@@ -216,6 +216,9 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
             // 记录初始存款（用于后续区分初始存款 vs 外部充值）
             initialDeposit = _initialBalance;
         }
+        
+        // P2-4 Fix: 标记初始存款已记录（防止 deposit() 函数误判）
+        initialDepositRecorded = true;
 
         emit AgentBorn(address(this), _genomeHash, _agentEOA, birthTime);
     }
