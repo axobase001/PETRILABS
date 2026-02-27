@@ -67,6 +67,16 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         uint256 amount, 
         string incomeType
     );
+    
+    /// @notice 本金回收事件（P1-1 fix）
+    /// @param agent Agent 地址
+    /// @param principal 回收的本金
+    /// @param grossAmount 毛收入
+    event PrincipalRecovered(
+        address indexed agent,
+        uint256 principal,
+        uint256 grossAmount
+    );
 
     // ============ Core Dependencies ============
     bytes32 public genomeHash;
@@ -354,14 +364,30 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     /// @notice 记录 agent 自主赚取的收入
     /// @dev 由 agent runtime 或技能合约调用，当 agent 通过交易/服务赚取收入时
     /// @param _amount 赚取的金额（USDC）
-    function recordEarnedIncome(uint256 _amount) external onlyAgentOrOrchestrator {
-        if (_amount == 0) revert InvalidAmount();
+    /// @notice 记录自赚收入（P1-1 fix: 基于净利润分红）
+    /// @param _grossAmount 毛收入金额
+    /// @param _principal 投入本金
+    /// @dev 只有净利润（gross - principal）才计入 earned income 并触发分红
+    function recordEarnedIncome(uint256 _grossAmount, uint256 _principal) external onlyAgentOrOrchestrator {
+        if (_grossAmount == 0) revert InvalidAmount();
         
-        totalEarnedIncome += _amount;
-        emit IncomeReceived(address(this), _amount, "earned");
+        // 计算实际利润（防止 underflow）
+        uint256 profit = _grossAmount > _principal ? _grossAmount - _principal : 0;
         
-        // 自赚收入也触发分红（创造者从 agent 劳动中获益）
-        _processIncomingFunds(_amount);
+        // 只记录利润部分为 earned income
+        totalEarnedIncome += profit;
+        
+        emit IncomeReceived(address(this), profit, "earned");
+        
+        // 只有利润部分才触发分红
+        if (profit > 0) {
+            _processIncomingFunds(profit);
+        }
+        
+        // 记录本金回收（用于 ROI 追踪）
+        if (_principal > 0 && _grossAmount >= _principal) {
+            emit PrincipalRecovered(address(this), _principal, _grossAmount);
+        }
     }
     
     /// @notice 计算生存依赖度（外部资金占比）

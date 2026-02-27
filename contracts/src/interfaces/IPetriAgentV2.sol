@@ -52,6 +52,13 @@ interface IPetriAgentV2 {
         string incomeType
     );
     
+    /// @notice 本金回收事件（P1-1 fix）
+    event PrincipalRecovered(
+        address indexed agent,
+        uint256 principal,
+        uint256 grossAmount
+    );
+    
     /// @notice 遗产转账失败事件（不阻塞死亡流程）
     event LegacyTransferFailed(
         address indexed agent,
@@ -126,12 +133,12 @@ interface IPetriAgentV2 {
     function totalExternalFunding() external view returns (uint256);
     function totalEarnedIncome() external view returns (uint256);
     
-    // Income tracking
-    function recordEarnedIncome(uint256 _amount) external;
+    // Income tracking (P1-1 fix: now accepts gross and principal)
+    function recordEarnedIncome(uint256 _grossAmount, uint256 _principal) external;
     function getSurvivalDependency() external view returns (uint256 dependencyBps);
     function getIncomeStats() external view returns (
         uint256 initial,
-        uint256 external,
+        uint256 externalFunding,
         uint256 earned,
         uint256 total,
         uint256 dependencyBps

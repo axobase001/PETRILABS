@@ -32,6 +32,7 @@ import DeathManager from '../lifecycle/death-manager';
 import { LeaseManager } from '../infrastructure/lease-manager';
 import { LeaseRenewalAdapter } from '../skills/adapters/lease-renewal';
 import { WorkingMemory } from '../memory/working-memory';
+import { AutoEpigeneticService } from '../auto-epigenetics';
 
 export class ClawBot {
   private config: AgentConfig;
@@ -66,6 +67,9 @@ export class ClawBot {
   
   // Task 31: 工作记忆与代谢追踪
   private workingMemory?: WorkingMemory;
+  
+  // Task 36: 自动表观遗传服务
+  private autoEpigenetics?: AutoEpigeneticService;
   
   private isRunning = false;
   private decisionInterval?: NodeJS.Timeout;
@@ -206,6 +210,17 @@ export class ClawBot {
       initialDeposit: config.initialDeposit || 0,
       onShutdown: () => this.gracefulShutdown(),
     });
+    
+    // Task 36: 初始化 AutoEpigeneticService
+    this.autoEpigenetics = new AutoEpigeneticService(
+      config.agentAddress,
+      this.geneExpressionEngine,
+      this.metabolismTracker,
+      new ethers.Wallet(config.privateKey, this.provider),
+      this.provider
+    );
+    
+    logger.info('AutoEpigeneticService initialized');
 
     // Genome registry contract
     const GENOME_REGISTRY_ABI = [
@@ -354,11 +369,31 @@ export class ClawBot {
 
   /**
    * 触发压力响应（G-染色体）
+   * Task 36: 使用 AutoEpigeneticService 替代手动逻辑
    */
   private async triggerStressResponse(type: string, context: unknown): Promise<void> {
     logger.warn('Triggering stress response', { type, context });
     
-    // 查找并表达 G-染色体压力响应基因
+    // 将内部类型映射到 AutoEpigeneticService 的压力类型
+    let stressType: 'FINANCIAL' | 'ENVIRONMENTAL' | 'SOCIAL' = 'ENVIRONMENTAL';
+    let severity = 0.5;
+    
+    if (type === 'metabolic_exceed' || type === 'financial') {
+      stressType = 'FINANCIAL';
+      severity = 0.8;
+    } else if (type === 'EVICTION' || type === 'environmental') {
+      stressType = 'ENVIRONMENTAL';
+      severity = 0.9;
+    }
+    
+    // 使用 AutoEpigeneticService 处理压力事件
+    if (this.autoEpigenetics) {
+      const balance = await this.getBalanceUSDC();
+      await this.autoEpigenetics.evaluateAndAdapt();
+      logger.info('Auto-epigenetic adaptation triggered', { stressType, severity, balance });
+    }
+    
+    // 查找并表达 G-染色体压力响应基因（保留原有逻辑作为 fallback）
     const stressGenes = this.loadedGenes.filter(
       g => g.domain === GeneDomain.STRESS_RESPONSE
     );
@@ -380,8 +415,12 @@ export class ClawBot {
         },
       });
       
-      // 表达压力基因（影响后续决策）
-      this.expressionEngine['applyStressModifier'](primaryStressGene.id);
+      // P3-1 Fix: 使用公共方法替代私有属性访问
+      if (typeof this.expressionEngine.applyStressModifier === 'function') {
+        this.expressionEngine.applyStressModifier(primaryStressGene.id);
+      } else {
+        logger.warn('ExpressionEngine.applyStressModifier not available');
+      }
     }
   }
 
@@ -427,7 +466,8 @@ export class ClawBot {
               age: Number(gene.age),
             };
             
-            this.expressionEngine['geneCache'].set(gene.id, normalizedGene);
+            // P3-1 Fix: 使用公共 geneCache 属性
+            (this.expressionEngine as any).geneCache.set(gene.id, normalizedGene);
             this.loadedGenes.push(normalizedGene);
           }
         } catch (err) {
@@ -435,7 +475,8 @@ export class ClawBot {
         }
       }
 
-      const geneCount = this.expressionEngine['geneCache'].size;
+      // P3-1 Fix: 使用公共 geneCache 属性
+      const geneCount = (this.expressionEngine as any).geneCache.size;
       logger.info(`Loaded ${geneCount} genes`);
       
       // 更新代谢追踪器的基因列表（新增）

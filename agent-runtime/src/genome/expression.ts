@@ -4,6 +4,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { Gene } from '../types';
 
 export interface GeneEpigeneticRecord {
   geneIndex: number;
@@ -98,6 +99,12 @@ export class GeneExpressionEngine {
   private currentDay: number = 0;
   private birthTimestamp: number;
   private geneNames: string[];
+  
+  // P3-1 Fix: 公开 geneCache 用于外部访问（只读）
+  public readonly geneCache: Map<number, Gene> = new Map();
+  
+  // P3-1 Fix: 压力修饰符映射
+  private stressModifiers: Map<number, number> = new Map();
 
   constructor(genome: number[], geneNames?: string[]) {
     this.genome = genome;
@@ -264,6 +271,58 @@ export class GeneExpressionEngine {
    */
   getGenome(): number[] {
     return [...this.genome];
+  }
+  
+  // ============ P3-1 Fix: 公共方法替代私有属性访问 ============
+  
+  /**
+   * 应用压力修饰符到指定基因
+   * P3-1 Fix: 公共方法替代私有属性访问
+   * @param geneId 基因 ID
+   */
+  applyStressModifier(geneId: number): void {
+    const currentModifier = this.stressModifiers.get(geneId) || 1.0;
+    // 压力增强：每次调用增加 20%，上限 2.0
+    this.stressModifiers.set(geneId, Math.min(2.0, currentModifier * 1.2));
+    logger.debug(`Stress modifier applied to gene ${geneId}: ${this.stressModifiers.get(geneId)}`);
+  }
+  
+  /**
+   * 获取基因的压力修饰符
+   * @param geneId 基因 ID
+   * @returns 修饰符值（默认 1.0）
+   */
+  getStressModifier(geneId: number): number {
+    return this.stressModifiers.get(geneId) || 1.0;
+  }
+  
+  /**
+   * 获取所有域的基因表达
+   * P3-1 Fix: 公共方法替代私有属性访问
+   */
+  getAllDomainExpressions(context: { timeOfDay: number; resourceLevel: number }): Map<any, number> {
+    // 简化实现：返回基于时间的表达映射
+    const expressions = new Map();
+    const hourFactor = Math.sin((context.timeOfDay / 24) * Math.PI * 2) * 0.5 + 0.5;
+    
+    // 为常见域添加表达值
+    for (let domain = 0; domain < 10; domain++) {
+      // 模拟域表达值，受时间和资源影响
+      const baseValue = this.genome[domain % this.genome.length] / 100000;
+      const adjustedValue = baseValue * hourFactor * context.resourceLevel;
+      expressions.set(domain, Math.max(0, Math.min(1, adjustedValue)));
+    }
+    
+    return expressions;
+  }
+  
+  /**
+   * 获取指定域的基因表达
+   * @param domain 基因域
+   */
+  getDomainExpression(domain: number): number {
+    const index = domain % this.genome.length;
+    return this.genome[index] / 100000; // 归一化到 0-1
   }
 }
 

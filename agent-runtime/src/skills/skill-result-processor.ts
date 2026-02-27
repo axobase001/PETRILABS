@@ -83,10 +83,11 @@ export class SkillResultProcessor {
     // Only record earned income if there's net profit
     if (netProfit > 0) {
       try {
-        // Call contract to record earned income (net profit only)
-        const tx = await this.agentContract.recordEarnedIncome(
-          ethers.parseUnits(netProfit.toFixed(6), 6)
-        );
+        // P1-1 Fix: Call contract with gross and principal to calculate profit on-chain
+        const grossAmount = ethers.parseUnits(grossIncome.toFixed(6), 6);
+        const principalAmount = ethers.parseUnits(principalCost.toFixed(6), 6);
+        
+        const tx = await this.agentContract.recordEarnedIncome(grossAmount, principalAmount);
         await tx.wait();
         
         logger.info('[SKILL] Net profit recorded as earned income', {
