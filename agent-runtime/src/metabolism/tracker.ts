@@ -451,6 +451,48 @@ export class MetabolismTracker {
   getDailyCost(): number {
     return this.dailyBill?.totalCost || this.estimateDailyCost();
   }
+
+  /**
+   * Task 31: Get total cost by type
+   * Used for cognitive efficiency calculation
+   */
+  getTotalCostByType(type: 'api' | 'llm' | 'cognition' | 'storage' | 'heartbeat' | 'gene'): number {
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    
+    switch (type) {
+      case 'cognition':
+      case 'llm':
+        // Sum cognition costs
+        return this.cognitionCalls
+          .filter(c => c.timestamp > oneDayAgo)
+          .reduce((sum, c) => sum + c.cost, 0);
+      
+      case 'api':
+        // Sum API call costs
+        return this.apiCalls
+          .filter(c => c.timestamp > oneDayAgo)
+          .reduce((sum, c) => sum + this.costs.apiCall.dynamic(c.cost), 0);
+      
+      case 'storage':
+        return this.storageWrites * this.costs.storageWrite;
+      
+      case 'heartbeat':
+        return this.heartbeats * this.costs.heartbeatGas;
+      
+      case 'gene':
+        return this.genes.length * this.costs.geneMaintenance;
+      
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * Task 31: Get total cognition cost (for fitness calculation)
+   */
+  getTotalCognitionCost(): number {
+    return this.getTotalCostByType('cognition');
+  }
 }
 
 export default MetabolismTracker;

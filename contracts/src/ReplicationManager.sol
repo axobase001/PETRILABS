@@ -392,7 +392,7 @@ contract ReplicationManager is IForkable, IMergeable, Ownable {
     
     /**
      * @notice 链上基因价值评估算法
-     * @dev 完全委托给 GenomeValueAssessor 库，消除重复逻辑
+     * @dev 委托给 GenomeValueAssessor 库
      */
     function assessGeneValue(address target, uint32[] calldata geneIds)
         external
@@ -400,22 +400,13 @@ contract ReplicationManager is IForkable, IMergeable, Ownable {
         override
         returns (uint256 valueScore, uint256 confidence)
     {
-        // 验证目标 Agent 存在
-        bytes32 targetGenome = agentGenomeHash[target];
-        if (targetGenome == bytes32(0)) {
-            return (0, 0);
-        }
+        if (agentGenomeHash[target] == bytes32(0)) return (0, 0);
         
-        // 获取目标余额
         uint256 targetBalance = usdc.balanceOf(target);
-        
-        // 使用 GenomeValueAssessor 进行专业评估
-        // 每个基因独立评估后汇总
         uint256 totalValue = 0;
         uint256 totalConfidence = 0;
         
         for (uint i = 0; i < geneIds.length; i++) {
-            // 默认域为 COGNITION (2)，实际应由调用者提供
             (uint256 geneValue, uint256 geneConfidence) = GenomeValueAssessor.assessGeneValue(
                 geneIds[i],
                 targetBalance,
@@ -425,12 +416,10 @@ contract ReplicationManager is IForkable, IMergeable, Ownable {
             totalConfidence += geneConfidence;
         }
         
-        // 归一化
         valueScore = totalValue > 10000 ? 10000 : totalValue;
         confidence = geneIds.length > 0 ? totalConfidence / geneIds.length : 0;
         
         emit GenomeValueAssessed(msg.sender, target, valueScore, geneIds);
-        
         return (valueScore, confidence);
     }
     

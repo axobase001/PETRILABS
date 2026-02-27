@@ -1,0 +1,113 @@
+# PETRILABS Orchestrator - Docker Compose for VPS Deployment
+# Usage: docker-compose -f docker/docker-compose.yml up -d
+
+version: '3.8'
+
+services:
+  # Redis for job queues and caching
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - orchestrator_network
+
+  # Main orchestrator API
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Server
+      - NODE_ENV=production
+      - PORT=3000
+      - LOG_LEVEL=info
+      - LOG_FILE=/app/logs/orchestrator.log
+      
+      # Redis
+      - REDIS_URL=redis://redis:6379
+      
+      # Blockchain (Base Mainnet)
+      - RPC_URL=${RPC_URL:-https://mainnet.base.org}
+      - CHAIN_ID=8453
+      
+      # Contract Addresses (Base Mainnet)
+      - FACTORY_ADDRESS=${FACTORY_ADDRESS}
+      - GENOME_REGISTRY_ADDRESS=${GENOME_REGISTRY_ADDRESS}
+      
+      # Akash Configuration
+      - AKASH_RPC=${AKASH_RPC:-https://rpc.akashnet.net}
+      - AKASH_REST=${AKASH_REST:-https://api.akashnet.net}
+      - AKASH_CHAIN_ID=${AKASH_CHAIN_ID:-akashnet-2}
+      - AKASH_MNEMONIC=${AKASH_MNEMONIC}
+      
+      # Monitor Configuration
+      - AKASH_CHECK_ENABLED=${AKASH_CHECK_ENABLED:-true}
+      - AUTO_RESTART_ENABLED=${AUTO_RESTART_ENABLED:-false}
+      - CHECK_INTERVAL_MS=${CHECK_INTERVAL_MS:-60000}
+      - WARNING_THRESHOLD_HOURS=${WARNING_THRESHOLD_HOURS:-24}
+      - CRITICAL_THRESHOLD_HOURS=${CRITICAL_THRESHOLD_HOURS:-6}
+      
+      # CORS
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      
+      # Security
+      - JWT_SECRET=${JWT_SECRET}
+      - API_KEY=${API_KEY}
+    volumes:
+      - ../logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - orchestrator_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ../logs/nginx:/var/log/nginx
+    depends_on:
+      - orchestrator
+    networks:
+      - orchestrator_network
+    profiles:
+      - with-nginx
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  orchestrator_network:
+    driver: bridge

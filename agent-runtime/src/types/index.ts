@@ -107,6 +107,12 @@ export interface SkillResult {
   error?: string;
   gasUsed?: string;
   timestamp: number;
+  /** Task 35/Fix: Profit and Loss from this skill execution (net profit) */
+  pnl?: number;
+  /** Transaction hash if on-chain */
+  txHash?: string;
+  /** Human-readable message */
+  message?: string;
 }
 
 export interface MemoryEvent {
@@ -344,9 +350,27 @@ export interface DeathData {
   };
   
   // === 死亡上下文 ===
-  deathCause: 'STARVATION' | 'CONTAINER_EXPIRED' | 'UNKNOWN';
+  deathCause: 'STARVATION' | 'CONTAINER_EXPIRED' | 'EVICTION' | 'COGNITIVE_STARVATION' | 'UNKNOWN';
   lastAction: string;
   lastDecision: string;
+  
+  // === Task 31: 适应度指标 ===
+  fitnessMetrics?: {
+    survivalEfficiency: number;
+    capitalGrowthRate: number;
+    independenceScore: number;
+    decisionQuality: number;
+    cognitiveEfficiency: number;
+  };
+  
+  // === Task 34: 表观遗传档案 ===
+  epigeneticProfile?: Array<{
+    geneIndex: number;
+    activationCount: number;
+    impactWeight: number;
+    methylation: number;
+    lastActivated: number;
+  }>;
   
   // === 后代信息 ===
   forkCount: number;

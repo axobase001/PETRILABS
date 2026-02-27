@@ -1,0 +1,68 @@
+{
+  "network": "Base Sepolia Testnet",
+  "chainId": 84532,
+  "rpcUrl": "https://sepolia.base.org",
+  "contracts": {
+    "PetriAgentFactory": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "GenomeRegistry": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "Epigenetics": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "ReplicationManager": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "AgentBank": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "Tombstone": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "USDC": {
+      "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "deploymentBlock": 0,
+      "note": "Base Sepolia USDC faucet"
+    }
+  },
+  "tokens": {
+    "USDC": {
+      "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "decimals": 6,
+      "symbol": "USDC"
+    },
+    "WETH": {
+      "address": "0x4200000000000000000000000000000000000006",
+      "decimals": 18,
+      "symbol": "WETH"
+    }
+  },
+  "uniswap": {
+    "factory": "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24",
+    "router": "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4",
+    "quoter": "0xC5290058841028F1614F3A6F0F5816cAd0df5E27"
+  },
+  "faucets": {
+    "USDC": "https://portal.cdp.coinbase.com/products/faucet",
+    "ETH": "https://www.alchemy.com/faucets/base-sepolia"
+  },
+  "deployment": {
+    "date": "TBD",
+    "deployer": "TBD",
+    "gitCommit": "TBD"
+  }
+}

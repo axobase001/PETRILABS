@@ -1,6 +1,19 @@
 /**
- * Vault Client for Agent Runtime
- * 容器启动时从Vault获取私钥，然后Vault立即删除
+ * @deprecated Vault Client - DEPRECATED
+ * 
+ * This module is deprecated. Use SecureKeyManager from './secure-key-manager' instead.
+ * 
+ * Migration:
+ * - Replace: import { VaultClient } from './vault-client'
+ * - With:    import { SecureKeyManager } from './secure-key-manager'
+ * 
+ * - Replace: const secret = await new VaultClient(url).retrieveKey()
+ * - With:    const { privateKey, address } = SecureKeyManager.loadPrivateKey()
+ * 
+ * Reason: PetriLabs follows "Wild Release" principle - agents are fully autonomous
+ * without external Vault dependencies. Keys are injected via env vars.
+ * 
+ * This file will be removed in a future version.
  */
 
 import axios from 'axios';

@@ -1,0 +1,64 @@
+{
+  "network": "Base Mainnet",
+  "chainId": 8453,
+  "rpcUrl": "https://mainnet.base.org",
+  "contracts": {
+    "PetriAgentFactory": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "GenomeRegistry": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "Epigenetics": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "ReplicationManager": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "AgentBank": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "Tombstone": {
+      "address": "TBD",
+      "deploymentBlock": 0,
+      "version": "1.0.0"
+    },
+    "USDC": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "deploymentBlock": 0,
+      "note": "Base Mainnet native USDC"
+    }
+  },
+  "tokens": {
+    "USDC": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "decimals": 6,
+      "symbol": "USDC"
+    },
+    "WETH": {
+      "address": "0x4200000000000000000000000000000000000006",
+      "decimals": 18,
+      "symbol": "WETH"
+    }
+  },
+  "uniswap": {
+    "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+    "router": "0x2626664c2603336E57B271c5C0b26F421741e481",
+    "quoter": "0x3d4e44Eb1374240CE5F1B871ab261CD16335CB61"
+  },
+  "deployment": {
+    "date": "TBD",
+    "deployer": "TBD",
+    "gitCommit": "TBD"
+  }
+}

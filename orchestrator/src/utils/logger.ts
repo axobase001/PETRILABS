@@ -1,49 +1,42 @@
+/**
+ * Logger Utility
+ */
+
 import winston from 'winston';
-import { config } from '../config';
 
-const { combine, timestamp, printf, colorize, errors } = winston.format;
-
-const customFormat = printf(({ level, message, timestamp, stack, ...metadata }) => {
-  let msg = `${timestamp} [${level}]: ${message}`;
-  
-  if (Object.keys(metadata).length > 0) {
-    msg += ` ${JSON.stringify(metadata)}`;
-  }
-  
-  if (stack) {
-    msg += `\n${stack}`;
-  }
-  
-  return msg;
-});
+const { combine, timestamp, json, errors } = winston.format;
 
 export const logger = winston.createLogger({
-  level: config.logging.level,
-  defaultMeta: { service: 'orchestrator' },
+  level: process.env.LOG_LEVEL || 'info',
+  defaultMeta: {
+    service: 'orchestrator',
+  },
+  format: combine(
+    timestamp(),
+    errors({ stack: true }),
+    json()
+  ),
   transports: [
     new winston.transports.Console({
-      format: combine(
-        colorize(),
-        timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        errors({ stack: true }),
-        customFormat
-      ),
+      format: process.env.NODE_ENV === 'production'
+        ? undefined
+        : winston.format.combine(
+            winston.format.colorize(),
+            winston.format.simple()
+          ),
     }),
   ],
 });
 
 // Add file transport in production
-if (config.server.nodeEnv === 'production') {
-  logger.add(new winston.transports.File({
-    filename: 'logs/error.log',
-    level: 'error',
-    format: combine(timestamp(), errors({ stack: true }), customFormat),
-  }));
-  
-  logger.add(new winston.transports.File({
-    filename: 'logs/combined.log',
-    format: combine(timestamp(), customFormat),
-  }));
+if (process.env.NODE_ENV === 'production' && process.env.LOG_FILE) {
+  logger.add(
+    new winston.transports.File({
+      filename: process.env.LOG_FILE,
+      maxsize: 5242880, // 5MB
+      maxFiles: 5,
+    })
+  );
 }
 
 export default logger;

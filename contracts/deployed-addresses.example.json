@@ -1,0 +1,62 @@
+{
+  "network": "base-mainnet",
+  "chainId": 8453,
+  "deployedAt": "2026-02-27T12:00:00Z",
+  "deployer": "0x...",
+  "contracts": {
+    "Tombstone": {
+      "address": "0x...",
+      "hash": "0x...",
+      "blockNumber": 12345678,
+      "note": "ERC721 墓碑 NFT 合约"
+    },
+    "Epigenetics": {
+      "address": "0x...",
+      "hash": "0x...",
+      "blockNumber": 12345679,
+      "note": "表观遗传模块"
+    },
+    "AgentBank": {
+      "address": "0x...",
+      "hash": "0x...",
+      "blockNumber": 12345680,
+      "note": "资金归集合约，USDC: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    },
+    "GenomeRegistry": {
+      "address": "0x...",
+      "hash": "0x...",
+      "blockNumber": 12345681,
+      "note": "基因组注册表"
+    },
+    "ReplicationManager": {
+      "address": "0x...",
+      "hash": "0x...",
+      "blockNumber": 12345682,
+      "note": "复制管理合约"
+    },
+    "PetriAgentV2": {
+      "address": "0x...",
+      "hash": "0x...",
+      "blockNumber": 12345683,
+      "note": "Agent 实现合约（纯实现，用于克隆）"
+    },
+    "PetriFactoryV2": {
+      "address": "0x...",
+      "hash": "0x...",
+      "blockNumber": 12345684,
+      "implementation": "0x...",
+      "note": "工厂主合约，负责创建 Agent"
+    }
+  },
+  "permissionsConfigured": true,
+  "permissions": {
+    "Tombstone": {
+      "minters": ["PetriFactoryV2"]
+    },
+    "AgentBank": {
+      "sweepers": ["PetriFactoryV2"]
+    }
+  },
+  "verified": false,
+  "verificationNotes": "运行 verify-commands.sh 或手动执行验证命令"
+}

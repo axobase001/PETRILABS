@@ -20,7 +20,12 @@ import "./interfaces/ITombstone.sol";
  */
 contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     // ============ Constants ============
-    uint256 public constant HEARTBEAT_INTERVAL = 6 hours;
+    /// @notice 最快心跳间隔（防 spam）
+    uint256 public constant MIN_HEARTBEAT_INTERVAL = 6 hours;
+    
+    /// @notice 最长允许间隔，超过此时间任何人可宣告死亡
+    uint256 public constant MAX_HEARTBEAT_INTERVAL = 7 days;
+    
     uint256 public constant MIN_BALANCE = 1e6; // 1 USDC (6 decimals)
     uint256 public constant METABOLIC_SCALE = 100000;
     
@@ -31,10 +36,42 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
 
     // ============ Events ============
     event SweepFailed(address indexed agent, address indexed recipient, uint256 amount);
+    event AbandonedDeclared(address indexed agent, uint256 timeSinceLastHeartbeat);
+    
+    /// @notice 遗产转账失败事件（不阻塞死亡流程）
+    event LegacyTransferFailed(
+        address indexed agent,
+        address indexed intendedRecipient,
+        uint256 amount
+    );
+    
+    /// @notice 墓碑铸造失败事件（不阻塞死亡流程）
+    event TombstoneMintFailed(address indexed agent, address indexed creator);
+    
+    /// @notice 分红支付事件
+    /// @param creator 创造者地址
+    /// @param amount 分红金额
+    /// @param triggerAmount 触发此次分红的充值金额
+    event DividendPaid(
+        address indexed creator, 
+        uint256 amount, 
+        uint256 triggerAmount
+    );
+    
+    /// @notice 收入记录事件
+    /// @param from 资金来源地址
+    /// @param amount 金额
+    /// @param incomeType 收入类型："initial", "external", "earned"
+    event IncomeReceived(
+        address indexed from, 
+        uint256 amount, 
+        string incomeType
+    );
 
     // ============ Core Dependencies ============
     bytes32 public genomeHash;
     address public orchestrator;
+    address public agentEOA;        // Agent's EOA wallet for autonomous heartbeat
     IERC20 public usdc;
     IGenomeRegistry public genomeRegistry;
     address public replicationManager;
@@ -70,9 +107,39 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     mapping(address => uint256) public assessedAgentValue;
     mapping(address => uint256) public assessmentTime;
     
+    // ============ Creator Dividend ============
+    /// @notice 创造者地址（部署者）
+    address public creator;
+    
+    /// @notice 创造者分红比例（基点，0-5000，即 0%-50%）
+    /// @dev 初始化时设置，永久锁定不可更改
+    uint256 public creatorShareBps;
+    
+    /// @notice 累计已分红金额（追踪用途）
+    uint256 public totalCreatorDividends;
+    
+    /// @notice 初始存款金额（用于区分初始存款 vs 后续充值）
+    uint256 public initialDeposit;
+    
+    /// @notice 累计外部资金（非初始存款）
+    uint256 public totalExternalFunding;
+    
+    /// @notice 累计自赚收入总额（通过技能/交易赚取）
+    uint256 public totalEarnedIncome;
+    
+    /// @notice 收入追踪已初始化（防止重复记录初始存款）
+    bool private initialDepositRecorded;
+    
     // ============ Modifiers ============
     modifier onlyOrchestrator() {
         if (msg.sender != orchestrator) revert NotOrchestrator();
+        _;
+    }
+
+    modifier onlyAgentOrOrchestrator() {
+        if (msg.sender != agentEOA && msg.sender != orchestrator) {
+            revert NotAgentOrOrchestrator();
+        }
         _;
     }
 
@@ -104,16 +171,25 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         address _epigenetics,
         address _agentBank,
         address _tombstone,
-        uint256 _initialBalance
+        uint256 _initialBalance,
+        address _agentEOA,
+        address _creator,
+        uint256 _creatorShareBps
     ) external initializer {
         if (_genomeHash == bytes32(0)) revert InvalidGenome();
         if (_orchestrator == address(0)) revert InvalidAmount();
         if (_usdc == address(0)) revert InvalidAmount();
+        if (_agentEOA == address(0)) revert InvalidAgentEOA();
+        if (_creator == address(0)) revert InvalidAmount();
+        if (_creatorShareBps > 5000) revert InvalidAmount(); // Max 50%
         
         __Ownable_init(_orchestrator);
 
         genomeHash = _genomeHash;
         orchestrator = _orchestrator;
+        agentEOA = _agentEOA;
+        creator = _creator;
+        creatorShareBps = _creatorShareBps;
         usdc = IERC20(_usdc);
         genomeRegistry = IGenomeRegistry(_genomeRegistry);
         replicationManager = _replicationManager;
@@ -135,9 +211,12 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         if (_initialBalance > 0) {
             bool success = usdc.transferFrom(_orchestrator, address(this), _initialBalance);
             if (!success) revert TransferFailed();
+            
+            // 记录初始存款（用于后续区分初始存款 vs 外部充值）
+            initialDeposit = _initialBalance;
         }
 
-        emit AgentBorn(address(this), _genomeHash, birthTime);
+        emit AgentBorn(address(this), _genomeHash, _agentEOA, birthTime);
     }
 
     // ============ Core Functions ============
@@ -145,9 +224,10 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     function heartbeat(
         bytes32 _decisionHash,
         string calldata _arweaveTxId
-    ) external override onlyOrchestrator onlyAlive returns (bool) {
-        if (block.timestamp < lastHeartbeat + HEARTBEAT_INTERVAL) {
-            revert HeartbeatTooFrequent();
+    ) external override onlyAgentOrOrchestrator onlyAlive returns (bool) {
+        // 检查是否过于频繁（防 spam），但允许在 [6小时, 7天] 弹性范围内自主决定
+        if (block.timestamp < lastHeartbeat + MIN_HEARTBEAT_INTERVAL) {
+            revert HeartbeatTooFrequent(block.timestamp - lastHeartbeat);
         }
 
         // Calculate metabolic cost
@@ -191,7 +271,7 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
     function executeDecision(bytes calldata _decisionData) 
         external 
         override 
-        onlyOrchestrator 
+        onlyAgentOrOrchestrator 
         onlyAlive 
         returns (bool) 
     {
@@ -215,12 +295,124 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
         
         bool success = usdc.transferFrom(msg.sender, address(this), _amount);
         if (!success) revert TransferFailed();
+        
+        // 判断是否为初始存款（从未记录过且总外部和赚取为 0）
+        if (!initialDepositRecorded && totalExternalFunding == 0 && totalEarnedIncome == 0) {
+            // 初始存款不计入分红（避免创造者自充自提套利）
+            initialDeposit += _amount;
+            initialDepositRecorded = true;
+            emit IncomeReceived(msg.sender, _amount, "initial");
+        } else {
+            // 后续充值：记录为外部资金并触发分红
+            totalExternalFunding += _amount;
+            emit IncomeReceived(msg.sender, _amount, "external");
+            _processIncomingFunds(_amount);
+        }
 
         emit FundsDeposited(msg.sender, _amount);
+    }
+    
+    /// @notice 处理 incoming 资金的分红逻辑
+    /// @param incomingAmount 本次充值的金额
+    /// @dev 仅在 agent 存活且余额充足时执行，采用"生存优先"策略
+    function _processIncomingFunds(uint256 incomingAmount) internal {
+        // 如果比例为 0 或无创造者，跳过
+        if (creatorShareBps == 0 || creator == address(0)) return;
+        
+        uint256 currentBalance = usdc.balanceOf(address(this));
+        uint256 metabolicCost = getMetabolicCost();
+        
+        // 计算生存底线：至少保留 1 天的代谢成本
+        // metabolicCost 是每日成本（已考虑精度）
+        uint256 survivalFloor = metabolicCost > 0 ? metabolicCost : MIN_BALANCE;
+        
+        // 如果当前余额连 survival floor 都不到，不分红（保命优先）
+        if (currentBalance <= survivalFloor) return;
+        
+        // 可分配金额 = 超出生存线的部分，但不超过本次充值金额（防止重复分历史资金）
+        uint256 excess = currentBalance - survivalFloor;
+        uint256 distributable = excess < incomingAmount ? excess : incomingAmount;
+        
+        // 计算创造者份额
+        uint256 creatorShare = (distributable * creatorShareBps) / 10000;
+        
+        // 执行转账并记录
+        if (creatorShare > 0 && creatorShare <= usdc.balanceOf(address(this))) {
+            bool success = usdc.transfer(creator, creatorShare);
+            if (success) {
+                totalCreatorDividends += creatorShare;
+                emit DividendPaid(creator, creatorShare, incomingAmount);
+            }
+            // 如果转账失败，静默跳过（不 revert，保证充值成功）
+        }
+    }
+    
+    /// @notice 记录 agent 自主赚取的收入
+    /// @dev 由 agent runtime 或技能合约调用，当 agent 通过交易/服务赚取收入时
+    /// @param _amount 赚取的金额（USDC）
+    function recordEarnedIncome(uint256 _amount) external onlyAgentOrOrchestrator {
+        if (_amount == 0) revert InvalidAmount();
+        
+        totalEarnedIncome += _amount;
+        emit IncomeReceived(address(this), _amount, "earned");
+        
+        // 自赚收入也触发分红（创造者从 agent 劳动中获益）
+        _processIncomingFunds(_amount);
+    }
+    
+    /// @notice 计算生存依赖度（外部资金占比）
+    /// @return dependencyBps 依赖度，单位：基点（0-10000）
+    /// @dev 0 = 完全自产自足（100% earned），10000 = 完全依赖外部（0% earned）
+    /// 公式：(initialDeposit + totalExternalFunding) / totalIncome * 10000
+    function getSurvivalDependency() external view returns (uint256 dependencyBps) {
+        uint256 totalIncome = initialDeposit + totalExternalFunding + totalEarnedIncome;
+        
+        if (totalIncome == 0) {
+            return 10000; // 默认 100% 依赖（无收入时）
+        }
+        
+        uint256 externalIncome = initialDeposit + totalExternalFunding;
+        return (externalIncome * 10000) / totalIncome;
+    }
+    
+    /// @notice 获取收入结构详情（方便 Dashboard 展示）
+    /// @return initial 初始存款
+    /// @return external 外部充值累计
+    /// @return earned 自赚收入累计
+    /// @return total 总收入
+    /// @return dependencyBps 生存依赖度（基点）
+    function getIncomeStats() external view returns (
+        uint256 initial,
+        uint256 external,
+        uint256 earned,
+        uint256 total,
+        uint256 dependencyBps
+    ) {
+        initial = initialDeposit;
+        external = totalExternalFunding;
+        earned = totalEarnedIncome;
+        total = initial + external + earned;
+        dependencyBps = getSurvivalDependency();
     }
 
     function die(string calldata arweaveTxId) external override onlyOrchestrator onlyAlive {
         _die("forced", arweaveTxId);
+    }
+
+    /// @notice 任何人都可以在 agent 超过 7 天未心跳时宣告其死亡
+    /// @dev 用于清理僵尸 agent，防止占用网络资源
+    function declareAbandoned() external {
+        if (!isAlive) revert AgentAlreadyDead();
+        
+        uint256 timeSinceLastHeartbeat = block.timestamp - lastHeartbeat;
+        if (timeSinceLastHeartbeat <= MAX_HEARTBEAT_INTERVAL) {
+            revert AgentStillAlive(MAX_HEARTBEAT_INTERVAL - timeSinceLastHeartbeat);
+        }
+        
+        emit AbandonedDeclared(address(this), timeSinceLastHeartbeat);
+        
+        // 调用内部死亡逻辑，记录遗弃原因
+        _die("ABANDONED", "");
     }
 
     // ============ Autonomous Replication ============
@@ -399,35 +591,73 @@ contract PetriAgentV2 is IPetriAgentV2, Initializable, OwnableUpgradeable {
 
     // ============ Death & Tombstone ============
     
+    /// @notice 内部死亡处理函数
+    /// @dev 执行顺序：1.标记死亡 2.铸造墓碑 3.退还遗产
+    /// @dev 失败不阻塞：无论转账或铸造失败，agent 必须完成死亡
     function _die(string memory reason, string memory arweaveTxId) internal {
         require(isAlive, "Already dead");
+        
+        // 1. 首先标记死亡（防重入）
         isAlive = false;
         
-        // Query cross-chain total balance
-        uint256 finalBalance = agentBank.getTotalCrossChainBalance(address(this));
+        // 获取最终状态
+        uint256 finalBalance = usdc.balanceOf(address(this));
+        uint256 lifespan = block.number - birthBlock;
         
-        // Mint Tombstone NFT with explicit recipient (fix tx.origin vulnerability)
+        // 2. 铸造墓碑（必须在资金转移前，确保记录死亡时状态）
+        uint256 tombstoneId = _mintTombstone(reason, arweaveTxId, finalBalance, lifespan);
+        
+        // 3. 遗产处理：100% 剩余 USDC 退还给创造者（creator）
+        if (finalBalance > 0 && creator != address(0)) {
+            try usdc.transfer(creator, finalBalance) returns (bool success) {
+                if (!success) {
+                    emit LegacyTransferFailed(address(this), creator, finalBalance);
+                }
+            } catch {
+                emit LegacyTransferFailed(address(this), creator, finalBalance);
+            }
+        }
+        
+        emit AgentDied(
+            address(this),
+            block.timestamp,
+            reason,
+            arweaveTxId,
+            finalBalance,
+            bytes32(tombstoneId),
+            creator
+        );
+    }
+    
+    /// @notice 内部函数：铸造死亡墓碑 NFT
+    /// @dev 使用 try-catch 确保铸造失败不阻塞死亡流程
+    function _mintTombstone(
+        string memory reason,
+        string memory arweaveTxId,
+        uint256 finalBalance,
+        uint256 lifespan
+    ) internal returns (uint256 tombstoneId) {
+        // 如果墓碑合约未设置，跳过铸造但继续死亡流程
+        if (address(tombstone) == address(0)) {
+            return 0;
+        }
+        
         ITombstone.DeathRecordInput memory record = ITombstone.DeathRecordInput({
             genomeHash: genomeHash,
-            lifespan: block.number - birthBlock,
+            lifespan: lifespan,
             arweaveId: arweaveTxId,
             totalValue: finalBalance,
             offspringCount: childIds.length,
             causeOfDeath: reason
         });
         
-        uint256 tombstoneId = tombstone.mint(address(this), owner(), record);
-        
-        // Direct balance transfer (fix sweepOnDeath authorization issue)
-        uint256 balance = usdc.balanceOf(address(this));
-        if (balance > 0) {
-            bool success = usdc.transfer(owner(), balance);
-            if (!success) {
-                emit SweepFailed(address(this), owner(), balance);
-            }
+        try tombstone.mint(address(this), creator, record) returns (uint256 id) {
+            return id;
+        } catch {
+            // 墓碑铸造失败不应阻塞死亡
+            emit TombstoneMintFailed(address(this), creator);
+            return 0;
         }
-        
-        emit AgentDied(address(this), block.timestamp, reason, arweaveTxId, finalBalance, bytes32(tombstoneId));
     }
 
     // ============ Genome Interaction ============

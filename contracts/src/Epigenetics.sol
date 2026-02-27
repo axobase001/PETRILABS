@@ -3,6 +3,7 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IEpigenetics.sol";
+import "./interfaces/IPetriAgentV2.sol";
 
 /**
  * @title Epigenetics
@@ -15,6 +16,7 @@ contract Epigenetics is IEpigenetics, Ownable {
     uint256 public constant STRESS_THRESHOLD_HIGH = 7000;    // 70% 压力阈值
     uint256 public constant POVERTY_DAYS_TRIGGER = 3;        // 3天贫困触发
     uint256 public constant SCALE = 10000;                   // 精度缩放
+    uint256 public constant EXPLORATION_STRESS_THRESHOLD = 3000;  // 30% 探索模式阈值
     
     // agent => state
     mapping(address => AgentEpigeneticState) public states;
@@ -24,6 +26,25 @@ contract Epigenetics is IEpigenetics, Ownable {
     
     // 已初始化的 agent
     mapping(address => bool) public initialized;
+    
+    // 权限修饰符：只有 Agent 自己可以修改自己
+    modifier onlyAgentItself(address agent) {
+        require(
+            msg.sender == agent, 
+            "Epigenetics: Only agent can modify itself"
+        );
+        _;
+    }
+    
+    // 权限修饰符：只有 Agent 自己或 Orchestrator 可以操作
+    modifier onlyAgentOrOrchestrator(address agent) {
+        require(
+            msg.sender == agent || 
+            msg.sender == IPetriAgentV2(agent).orchestrator(),
+            "Epigenetics: Only agent or orchestrator"
+        );
+        _;
+    }
     
     modifier onlyInitialized(address agent) {
         require(initialized[agent], "Agent not initialized");
@@ -40,7 +61,11 @@ contract Epigenetics is IEpigenetics, Ownable {
     /**
      * @notice 初始化 Agent 表观遗传状态
      */
-    function initializeAgent(address agent, uint256 initialDeposit) external override {
+    function initializeAgent(address agent, uint256 initialDeposit) 
+        external 
+        override 
+        onlyAgentOrOrchestrator(agent)
+    {
         require(!initialized[agent], "Agent already initialized");
         require(initialDeposit > 0, "Initial deposit must be positive");
         
@@ -67,7 +92,7 @@ contract Epigenetics is IEpigenetics, Ownable {
         address agent,
         uint256 currentBalance,
         uint256 metabolicCost
-    ) external override onlyInitialized(agent) returns (bool shouldSuppress) {
+    ) external override onlyInitialized(agent) onlyAgentItself(agent) returns (bool shouldSuppress) {
         AgentEpigeneticState storage state = states[agent];
         
         // 更新最后处理时间
@@ -99,7 +124,7 @@ contract Epigenetics is IEpigenetics, Ownable {
             }
             
             // 策略 2: 资源充足 -> 探索模式
-            if (currentBalance >= state.initialDeposit * 2 && stressLevel < 3000) {
+            if (currentBalance >= state.initialDeposit * 2 && stressLevel < EXPLORATION_STRESS_THRESHOLD) {
                 if (keccak256(abi.encodePacked(state.currentStrategy)) != keccak256(abi.encodePacked("exploration"))) {
                     state.currentStrategy = "exploration";
                     emit StrategySwitched(agent, "exploration");
@@ -117,7 +142,7 @@ contract Epigenetics is IEpigenetics, Ownable {
     function applyEpigeneticMark(
         address agent,
         EpigeneticMark calldata mark
-    ) external override onlyInitialized(agent) {
+    ) external override onlyInitialized(agent) onlyAgentItself(agent) {
         AgentEpigeneticState storage state = states[agent];
         
         // 检查标记是否过期

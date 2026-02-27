@@ -33,9 +33,11 @@ interface ITombstone {
      * @param record 死亡记录数据
      * @return tokenId NFT 代币 ID
      */
-    function mint(address agent, DeathRecordInput calldata record) 
-        external 
-        returns (uint256 tokenId);
+    function mint(
+        address agent, 
+        address recipient,
+        DeathRecordInput calldata record
+    ) external returns (uint256 tokenId);
     
     /**
      * @notice 获取死亡记录

@@ -21,6 +21,26 @@ import type LifecycleTracker from './tracker';
 import type CognitionLedger from '../cognition/ledger';
 import type GeneLogger from '../gene-expression/logger';
 import type { GeneExpressionEngine } from '../gene-expression';
+import type { WorkingMemory } from '../memory/working-memory';
+import type { MetabolismTracker } from '../metabolism/tracker';
+
+// Task 31: Fitness Metrics Interface
+export interface FitnessMetrics {
+  /** 1. 存活效率：每一块钱启动资金换了几天命 */
+  survivalEfficiency: number;  // = survivalDays / initialDeposit
+  
+  /** 2. 资本增值率：巅峰余额相对初始资金的增幅 */
+  capitalGrowthRate: number;   // = (peakBalance - initialDeposit) / initialDeposit
+  
+  /** 3. 独立生存度：多大程度上靠自己活着 */
+  independenceScore: number;   // = 1 - (initialDeposit + externalFunding) / totalIncome
+  
+  /** 4. 决策质量：涉及资金的决策中盈利的比例 */
+  decisionQuality: number;     // = profitableDecisions / totalFinancialDecisions
+  
+  /** 5. 认知效率：每花一分钱思考做了几个决策 */
+  cognitiveEfficiency: number; // = totalDecisions / totalCognitionCostUSDC
+}
 
 export interface DeathManagerConfig {
   agentId: string;
@@ -30,6 +50,10 @@ export interface DeathManagerConfig {
   cognitionLedger?: CognitionLedger;
   geneLogger?: GeneLogger;
   geneExpressionEngine?: GeneExpressionEngine;
+  workingMemory?: WorkingMemory;          // Task 31
+  metabolismTracker?: MetabolismTracker;  // Task 31
+  initialDeposit?: number;                // Task 31
+  externalFunding?: number;               // Task 31
   onShutdown?: () => void;
 }
 
@@ -168,6 +192,57 @@ export class DeathManager {
   }
 
   /**
+   * Task 31: Calculate fitness metrics
+   */
+  calculateFitnessMetrics(): FitnessMetrics {
+    const lifecycle = this.config.lifecycleTracker.getStats();
+    const workingMemory = this.config.workingMemory;
+    const metabolismTracker = this.config.metabolismTracker;
+    
+    // Basic data
+    const survivalDays = (Date.now() - lifecycle.birthTimestamp) / (1000 * 86400);
+    const initialDeposit = this.config.initialDeposit || lifecycle.initialBalance || 0;
+    const peakBalance = workingMemory?.getPeakBalance() || lifecycle.peakBalance || initialDeposit;
+    const externalFunding = this.config.externalFunding || 0;
+    const totalEarned = lifecycle.totalIncome || 0;
+    const totalIncome = initialDeposit + externalFunding + totalEarned;
+    
+    // 1. Survival Efficiency: days per USDC of initial deposit
+    const survivalEfficiency = initialDeposit > 0 ? survivalDays / initialDeposit : 0;
+    
+    // 2. Capital Growth Rate: peak vs initial
+    const capitalGrowthRate = initialDeposit > 0 ? (peakBalance - initialDeposit) / initialDeposit : 0;
+    
+    // 3. Independence Score: 0 = fully dependent, 1 = fully self-sufficient
+    // Formula: 1 - (initial + external) / totalIncome
+    const independenceScore = totalIncome > 0 ? 1 - ((initialDeposit + externalFunding) / totalIncome) : 0;
+    
+    // 4. Decision Quality: profitable decisions / total financial decisions
+    const profitableCount = workingMemory?.getProfitableDecisionsCount() || 0;
+    const totalFinancialCount = workingMemory?.getTotalFinancialDecisionsCount() || 0;
+    const decisionQuality = totalFinancialCount > 0 ? profitableCount / totalFinancialCount : 0;
+    
+    // 5. Cognitive Efficiency: decisions per USDC spent on cognition
+    const totalDecisions = workingMemory?.getTotalDecisions() || lifecycle.totalHeartbeats || 0;
+    const totalCognitionCost = metabolismTracker?.getTotalCognitionCost() || 0;
+    // If using free Pollinations, cost could be 0 - handle Infinity case
+    const cognitiveEfficiency = totalCognitionCost > 0 
+      ? totalDecisions / totalCognitionCost 
+      : (totalDecisions > 0 ? Infinity : 0);
+    
+    const metrics: FitnessMetrics = {
+      survivalEfficiency,
+      capitalGrowthRate,
+      independenceScore,
+      decisionQuality,
+      cognitiveEfficiency,
+    };
+    
+    logger.info('[FITNESS] Metrics calculated', metrics);
+    return metrics;
+  }
+
+  /**
    * 收集临终数据
    */
   async collectDeathData(): Promise<DeathData> {
@@ -176,6 +251,9 @@ export class DeathManager {
     const lifecycle = this.config.lifecycleTracker.getStats();
     const cognition = this.config.cognitionLedger?.getSummary();
     const overrides = this.config.geneLogger?.getSummary();
+    
+    // Task 31: Calculate fitness metrics
+    const fitnessMetrics = this.calculateFitnessMetrics();
     
     // 获取当前区块号
     const deathBlock = await this.config.provider.getBlockNumber();
@@ -225,6 +303,12 @@ export class DeathManager {
         lastCognitionTier: this.lastCognitionTier,
       },
       
+      // Task 31: Fitness metrics
+      fitnessMetrics,
+      
+      // Task 34: Epigenetic profile (placeholder, will be filled later)
+      epigeneticProfile: this.config.geneExpressionEngine?.exportEpigeneticProfile(),
+      
       // 死亡上下文
       deathCause: (this.deathCause as any) || 'UNKNOWN',
       lastAction: this.lastAction,
@@ -237,7 +321,7 @@ export class DeathManager {
       
       // 元数据
       timestamp: Date.now(),
-      tombstoneVersion: '1.0',
+      tombstoneVersion: '1.1', // Updated for Task 31
     };
     
     logger.info('[DEATH] Death data collected', {
@@ -245,6 +329,7 @@ export class DeathManager {
       finalBalance: this.deathData.finalBalance,
       totalIncome: this.deathData.totalIncome,
       totalExpense: this.deathData.totalExpense,
+      fitnessMetrics: this.deathData.fitnessMetrics,
     });
     
     return this.deathData;
