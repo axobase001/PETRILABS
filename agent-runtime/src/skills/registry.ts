@@ -140,6 +140,28 @@ export class SkillRegistry {
         logger.error(`Error shutting down skill ${skill.id}`, { error: err });
       }
     }
+  }
+  
+  // ============ P3-1: 公共方法替代私有属性访问 ============
+  
+  /**
+   * Log memory event via context
+   * P3-1 Fix: 公共方法替代 this.skillRegistry['context'].memory.log()
+   */
+  async logMemoryEvent(event: import('../types').MemoryEvent): Promise<void> {
+    await this.context.memory.log(event);
+  }
+  
+  /**
+   * Get context for external access (readonly)
+   * P3-1 Fix: 提供只读访问而不暴露内部结构
+   */
+  getContext(): Readonly<SkillContext> {
+    return this.context;
+  }
+        logger.error(`Error shutting down skill ${skill.id}`, { error: err });
+      }
+    }
     this.skills.clear();
   }
 }

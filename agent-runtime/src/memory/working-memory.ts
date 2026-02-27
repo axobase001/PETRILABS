@@ -279,6 +279,10 @@ export class WorkingMemory {
   private stressLevel: number = 0.5;
   private birthTimestamp: number = Date.now();
   
+  // ============ P3-2: Skill Memory Support ============
+  
+  private skillMemory: Map<string, unknown> = new Map();
+  
   /**
    * Record offspring after successful fork
    */
@@ -325,9 +329,29 @@ export class WorkingMemory {
   getFinancialHistory(): FinancialDecision[] {
     return [...this.financialDecisions];
   }
+  
+  // ============ P3-2: Skill Memory Methods ============
+  
+  /**
+   * Get skill memory by key
+   */
+  getSkillMemory(key: string): unknown {
+    return this.skillMemory.get(key);
+  }
+  
+  /**
+   * Set skill memory
+   */
+  setSkillMemory(key: string, value: unknown): void {
+    this.skillMemory.set(key, value);
+  }
+  
+  /**
+   * Log event to memory
+   */
+  logEvent(event: MemoryItem): void {
+    this.add(event);
+  }
 }
-
-// Import logger at top of file
-import { logger } from '../utils/logger';
 
 export default WorkingMemory;

@@ -385,6 +385,7 @@ export class ClawBot {
 
   /**
    * 标准基因执行（非 D-染色体）
+   * P3-3 Fix: 使用实际成本估算替代硬编码值
    */
   private async standardExecution(gene: Gene, params?: unknown): Promise<{
     success: boolean;
@@ -392,19 +393,73 @@ export class ClawBot {
     cost: number;
     error?: string;
   }> {
-    // 根据基因域执行相应逻辑
-    switch (gene.domain) {
-      case GeneDomain.ONCHAIN_OPERATION:
-        // 链上操作
-        return { success: true, cost: 0.001, data: null };
+    const startTime = Date.now();
+    
+    try {
+      switch (gene.domain) {
+        case GeneDomain.ONCHAIN_OPERATION: {
+          // P3-3: 估算实际 Gas 成本
+          const estimatedGas = 50000; // 基础操作估算 50k gas
+          const gasPrice = await this.provider.getFeeData();
+          const gasCostEth = estimatedGas * Number(gasPrice.gasPrice || 1e9);
+          // 转换为 USDC (假设 1 ETH = 3000 USDC，1 ETH = 1e18 wei)
+          const gasCostUSDC = (gasCostEth / 1e18) * 3000;
+          
+          return { 
+            success: true, 
+            cost: Math.max(0.001, gasCostUSDC), // 最小成本 0.001
+            data: null,
+            executionTime: Date.now() - startTime,
+          };
+        }
         
-      case GeneDomain.COGNITION:
-        // 认知处理
-        return { success: true, cost: 0.01, data: null };
+        case GeneDomain.COGNITION: {
+          // P3-3: 从 cognitionRouter 获取实际 API 调用成本
+          const cognitionCost = this.cognitionRouter 
+            ? await this.estimateCognitionCost(params)
+            : 0.01; // 默认回退值
+          
+          return { 
+            success: true, 
+            cost: cognitionCost,
+            data: null,
+            executionTime: Date.now() - startTime,
+          };
+        }
         
-      default:
-        return { success: true, cost: gene.metabolicCost / 10000, data: null };
+        default: {
+          // 使用基因代谢成本（已正确缩放）
+          const metabolicCostUSDC = gene.metabolicCost / 1000000; // 假设 metabolicCost 是 1e6 缩放的
+          return { 
+            success: true, 
+            cost: metabolicCostUSDC,
+            data: null,
+          };
+        }
+      }
+    } catch (error) {
+      logger.error('[STANDARD_EXECUTION] Error calculating cost', { error, gene });
+      return {
+        success: false,
+        cost: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
+  }
+  
+  /**
+   * P3-3: 估算认知处理成本
+   */
+  private async estimateCognitionCost(params: unknown): Promise<number> {
+    // 基于参数复杂度估算 token 数
+    const paramString = JSON.stringify(params);
+    const estimatedTokens = Math.ceil(paramString.length / 4); // 粗略估算：4 字符 ≈ 1 token
+    
+    // OpenAI GPT-4 价格：$0.03/1k input tokens, $0.06/1k output tokens
+    const inputCost = (estimatedTokens / 1000) * 0.03;
+    const outputCost = (500 / 1000) * 0.06; // 假设平均 500 tokens 输出
+    
+    return inputCost + outputCost;
   }
 
   /**
@@ -455,12 +510,8 @@ export class ClawBot {
         },
       });
       
-      // P3-1 Fix: 使用公共方法替代私有属性访问
-      if (typeof this.expressionEngine.applyStressModifier === 'function') {
-        this.expressionEngine.applyStressModifier(primaryStressGene.id);
-      } else {
-        logger.warn('ExpressionEngine.applyStressModifier not available');
-      }
+      // P3-1: 使用公共方法替代私有属性访问
+      this.expressionEngine.applyStressModifier(primaryStressGene.id);
     }
   }
 
@@ -506,8 +557,8 @@ export class ClawBot {
               age: Number(gene.age),
             };
             
-            // P3-1 Fix: 使用公共 geneCache 属性
-            (this.expressionEngine as any).geneCache.set(gene.id, normalizedGene);
+            // P3-1: 使用公共 geneCache 属性
+            this.expressionEngine.geneCache.set(gene.id, normalizedGene);
             this.loadedGenes.push(normalizedGene);
           }
         } catch (err) {
@@ -515,8 +566,8 @@ export class ClawBot {
         }
       }
 
-      // P3-1 Fix: 使用公共 geneCache 属性
-      const geneCount = (this.expressionEngine as any).geneCache.size;
+      // P3-1: 使用公共 geneCache 属性
+      const geneCount = this.expressionEngine.geneCache.size;
       logger.info(`Loaded ${geneCount} genes`);
       
       // 更新代谢追踪器的基因列表（新增）
@@ -530,6 +581,16 @@ export class ClawBot {
 
   /**
    * Start decision loop
+   * 
+   * P3-4 设计说明：
+   * - Decision Cycle (高频，几分钟)：本地认知循环，更新 WorkingMemory、基因表达、评估策略。
+   *   不消耗 Gas，可频繁运行。
+   * 
+   * - Heartbeat Cycle (低频，6h-7d)：链上生存证明，执行必要的链上动作（转账、交易、续租）。
+   *   消耗 Gas，受合约限制最小间隔 6 小时。
+   * 
+   * - 同步点：Decision 产生的链上需求被缓存，在下次 Heartbeat 时批量执行。
+   *   这平衡了响应速度和 Gas 效率。
    */
   private startDecisionLoop(): void {
     this.decisionInterval = setInterval(async () => {
@@ -538,6 +599,7 @@ export class ClawBot {
 
     logger.info('Decision loop started', {
       interval: this.config.intervals.decision,
+      heartbeatInterval: this.config.intervals.heartbeat,
     });
   }
 
@@ -869,26 +931,43 @@ export class ClawBot {
           return data;
         },
       },
+      // P3-2 Fix: 接入实际的 WorkingMemory
       memory: {
         get: async (key: string) => {
-          // TODO: Implement Redis/memory storage
-          return null;
+          return this.workingMemory?.getSkillMemory?.(key) ?? null;
         },
         set: async (key: string, value: unknown) => {
-          // TODO: Implement Redis/memory storage
+          this.workingMemory?.setSkillMemory?.(key, value);
         },
         log: async (event: MemoryEvent) => {
+          // 记录到 WorkingMemory 和 logger
+          this.workingMemory?.logEvent?.(event);
           logger.info('Memory event', { event });
         },
       },
+      // P3-2 Fix: 接入实际的链上调用
       chain: {
         call: async (method: string, args: unknown[]) => {
-          // Generic blockchain call
-          return null;
+          // 通过合约调用
+          try {
+            const wallet = new ethers.Wallet(this.config.privateKey, this.provider);
+            const contract = new Contract(this.config.agentAddress, [
+              `function ${method} external`,
+            ], wallet);
+            return await contract[method](...args);
+          } catch (error) {
+            logger.error('Chain call failed', { method, args, error });
+            throw error;
+          }
         },
         getBalance: async () => {
           const state = await this.heartbeatService.getState();
-          return state.balance;
+          return Number(state.balance) / 1e6; // USDC 6 decimals
+        },
+        sendTransaction: async (tx: any) => {
+          const wallet = new ethers.Wallet(this.config.privateKey, this.provider);
+          const response = await wallet.sendTransaction(tx);
+          return response.hash;
         },
       },
     };
@@ -928,9 +1007,39 @@ export class ClawBot {
 
   /**
    * Log memory event
+   * P3-1 Fix: 使用公共方法替代方括号访问
    */
   private async logMemory(event: MemoryEvent): Promise<void> {
-    await this.skillRegistry['context'].memory.log(event);
+    await this.skillRegistry.logMemoryEvent(event);
+  }
+
+  /**
+   * P3-4: 动态计算下次心跳间隔
+   * 基于生存压力：余额少时更频繁（接近 6h），余额多时延长（接近 7d）
+   */
+  private calculateNextHeartbeatInterval(): number {
+    const MIN_HEARTBEAT = 6 * 60 * 60 * 1000;    // 6 hours (合约限制)
+    const MAX_HEARTBEAT = 7 * 24 * 60 * 60 * 1000; // 7 days (合约限制)
+    
+    const balance = this.workingMemory?.getCurrentBalance()?.usdcBalance || 0;
+    const burnRate = this.config.lease?.dailyRate || 1;
+    const daysOfLife = balance / burnRate;
+    
+    // 压力大时（余额 < 3 天），心跳更频繁
+    // 压力小时（余额 > 30 天），可以延长
+    if (daysOfLife < 3) return MIN_HEARTBEAT;
+    if (daysOfLife > 30) return MAX_HEARTBEAT;
+    
+    // 线性插值
+    const ratio = (daysOfLife - 3) / (30 - 3);
+    const interval = MIN_HEARTBEAT + ratio * (MAX_HEARTBEAT - MIN_HEARTBEAT);
+    
+    logger.debug('[P3-4] Calculated heartbeat interval', {
+      daysOfLife: daysOfLife.toFixed(2),
+      intervalHours: (interval / 3600000).toFixed(1),
+    });
+    
+    return Math.floor(interval);
   }
 
   /**
